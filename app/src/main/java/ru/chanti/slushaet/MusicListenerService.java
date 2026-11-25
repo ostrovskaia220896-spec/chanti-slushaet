@@ -39,7 +39,7 @@ public final class MusicListenerService extends NotificationListenerService {
         refresh();
     }
     @Override public void onNotificationPosted(StatusBarNotification item){
-        if(item!=null&&MediaScan.yandex(item.getPackageName()))refresh();
+        if(item!=null&&MediaScan.supported(item.getPackageName()))refresh();
     }
     @Override public void onNotificationRemoved(StatusBarNotification item){
         if(item!=null&&MediaScan.yandex(item.getPackageName()))refresh();
@@ -53,7 +53,7 @@ public final class MusicListenerService extends NotificationListenerService {
         if(manager!=null){
             try{
                 for(MediaController c:manager.getActiveSessions(component())){
-                    if(!MediaScan.yandex(c.getPackageName()))continue;
+                    if(!MediaScan.supported(c.getPackageName()))continue;
                     observed.add(c);
                     c.registerCallback(onPlayback,handler);
                 }

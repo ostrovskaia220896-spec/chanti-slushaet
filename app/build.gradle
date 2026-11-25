@@ -5,16 +5,18 @@ android {
     namespace 'ru.chanti.slushaet'
     compileSdk 35
     defaultConfig {
-        applicationId 'ru.chanti.slushaet.v2'
+        applicationId 'ru.chanti.slushaet.v05'
         minSdk 27
         targetSdk 35
-        versionCode 4
-        versionName '0.4'
+        versionCode 5
+        versionName '0.5'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
-
-dependencies { testImplementation 'junit:junit:4.13.2' }
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    implementation 'com.alphacephei:vosk-android:0.3.47'
+}
