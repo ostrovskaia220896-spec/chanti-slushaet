@@ -56,7 +56,7 @@ public final class TrackStore {
         if(a.getString("title","").isEmpty())return;
         long ms=heard(a);
         add(a,changed?"track_change":"track_end",ms,
-            changed&&ms<30000?"короткое прослушивание — не обязательно дизлайк":"");
+            TrackRules.switchNote(ms, changed));
     }
     static synchronized void stop(Context c){
         SharedPreferences a=p(c);if(!a.getBoolean("active",false))return;
@@ -68,7 +68,8 @@ public final class TrackStore {
         SharedPreferences a=p(c);
         if(!a.getBoolean("active",false)||title==null||title.trim().isEmpty())return;
         title=title.trim();artist=artist==null?"":artist.trim();
-        boolean different=!title.equals(a.getString("title",""))||!artist.equals(a.getString("artist",""));
+        boolean different=TrackRules.changed(
+            a.getString("title",""), a.getString("artist",""), title, artist);
         if(different){
             endSong(a,true);
             a.edit().putString("title",title).putString("artist",artist)

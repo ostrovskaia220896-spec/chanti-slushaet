@@ -8,11 +8,13 @@ android {
         applicationId 'ru.chanti.slushaet.v2'
         minSdk 27
         targetSdk 35
-        versionCode 3
-        versionName '0.3'
+        versionCode 4
+        versionName '0.4'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
 }
+
+dependencies { testImplementation 'junit:junit:4.13.2' }

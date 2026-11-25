@@ -162,7 +162,7 @@ public final class MainActivity extends Activity {
     private void copyDiary(){
         String diary=TrackStore.report(this);
         String message="Чанти, это мой музыкальный дневник. Обсудим композиции, эмоции " +
-            "и то, почему я переключала некоторые быстро. Не выдумывай текст песни.\\n\\n"+diary;
+            "и то, почему я переключала некоторые быстро. Не выдумывай текст песни.\n\n"+diary;
         ClipboardManager clip=(ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
         if(clip!=null)clip.setPrimaryClip(ClipData.newPlainText("Музыка для Чанти",message));
         new AlertDialog.Builder(this).setTitle("Дневник скопирован ❤️")
