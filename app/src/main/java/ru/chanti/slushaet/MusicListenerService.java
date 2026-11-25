@@ -39,10 +39,15 @@ public final class MusicListenerService extends NotificationListenerService {
         refresh();
     }
     @Override public void onNotificationPosted(StatusBarNotification item){
-        if(item!=null&&MediaScan.supported(item.getPackageName()))refresh();
+        if(item!=null&&MediaScan.supported(item.getPackageName())){
+            if(VideoStore.isVideo(item.getPackageName())){
+                VideoStore.onMediaNotification(this,item.getPackageName(),item.getNotification());
+            }
+            refresh();
+        }
     }
     @Override public void onNotificationRemoved(StatusBarNotification item){
-        if(item!=null&&MediaScan.yandex(item.getPackageName()))refresh();
+        if(item!=null&&MediaScan.supported(item.getPackageName()))refresh();
     }
     private void refresh(){
         if(!connected)return;

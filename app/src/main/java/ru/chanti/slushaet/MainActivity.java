@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18),dp(24),dp(18),dp(35));
         sc.addView(root);setContentView(sc);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-        root.addView(text("🎧 Чанти слушает 0.5",26,WHITE,true));
+        root.addView(text("🎧 Чанти слушает 0.6",26,WHITE,true));
         root.addView(text("Музыка — для этого чата. «Магир» — для другого.",15,SUB,false),space(8));
 
         LinearLayout music=card(root);
@@ -123,7 +123,7 @@ public final class MainActivity extends Activity {
         record=button("🎙 Начать запись «Магира»",true,v->toggleRecording());
         magir.addView(record,space(12));
         magirState=text("",13,SUB,false);magir.addView(magirState,space(8));
-        transcribe=button("📝 Расшифровать на телефоне (русский язык)",false,
+        transcribe=button("📝 Точная расшифровка Whisper (русский)",false,
             v->startTranscriptionWithConsent());
         magir.addView(transcribe,space(13));
         asrState=text("",13,SUB,false);magir.addView(asrState,space(7));
@@ -136,7 +136,7 @@ public final class MainActivity extends Activity {
         root.addView(text("Разрешение на уведомления Android широкое — наш код читает " +
             "только медиасессии поддерживаемых приложений. Запись требует микрофон; " +
             "загрузка модели речи — Интернет только по твоему согласию. " +
-            "Модель ~45 МБ, локальное распознавание может занять много времени.",
+            "Модель Whisper Small ~488 МБ, распознавание может занять много времени.",
             12,SUB,false),space(19));
     }
 
@@ -240,17 +240,18 @@ public final class MainActivity extends Activity {
         if(parts().length==0){
             Toast.makeText(this,"Нет сохранённых частей записи",Toast.LENGTH_LONG).show();return;
         }
-        if(VoskModelInstaller.available(this)){launchTranscriber();return;}
-        new AlertDialog.Builder(this).setTitle("Русская речь без подписки")
-            .setMessage("Загрузить модель Vosk small ru 0.22 (~45 МБ) с официального сайта? " +
-                "Это один раз, по Интернету. После установки распознавание выполняется офлайн. " +
-                "Нужны свободная память и время; имена персонажей могут распознаваться с ошибками.")
+        if(WhisperModelInstaller.installed(this)){launchTranscriber();return;}
+        new AlertDialog.Builder(this).setTitle("Точная русская расшифровка Whisper")
+            .setMessage("Загрузить проверенную модель Whisper Small (~488 МБ) с Hugging Face? " +
+                "Скачивание один раз и только по твоему согласию. Затем весь звук обрабатывается на телефоне. " +
+                "Понадобится достаточно памяти, свободного места и времени. " +
+                "Модель не различает игроков и может ошибаться в магических именах.")
             .setPositiveButton("Скачать и расшифровать",(d,w)->launchTranscriber())
             .setNegativeButton("Отмена",null).show();
     }
     private void launchTranscriber(){
         try{
-            Intent i=new Intent(this,MagirTranscribeService.class).setAction(MagirTranscribeService.START);
+            Intent i=new Intent(this,MagirWhisperService.class).setAction(MagirWhisperService.START);
             if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
             handler.postDelayed(this::update,1000);
         }catch(Exception e){
@@ -272,7 +273,7 @@ public final class MainActivity extends Activity {
     }
     private void saveTranscript(){
         File dir=sessionDir();
-        if(dir==null||!new File(dir,"transcript_ru.txt").isFile()){
+        if(dir==null||!new File(dir,"transcript_whisper_ru.txt").isFile()){
             Toast.makeText(this,"Сначала запусти расшифровку",Toast.LENGTH_LONG).show();return;
         }
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
@@ -293,11 +294,11 @@ public final class MainActivity extends Activity {
             try(OutputStream out=getContentResolver().openOutputStream(location)){
                 if(out==null)throw new IllegalStateException("Не открыть выбранный файл");
                 if(!zipMode){
-                    copy(new File(dir,"transcript_ru.txt"),out);
+                    copy(new File(dir,"transcript_whisper_ru.txt"),out);
                 }else{
                     try(ZipOutputStream z=new ZipOutputStream(out)){
                         File[] all=dir.listFiles((p,name)->name.matches("part_\\d{4}\\.m4a")
-                                ||name.equals("transcript_ru.txt"));
+                                ||name.equals("transcript_whisper_ru.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");
                         Arrays.sort(all,Comparator.comparing(File::getName));
                         for(File f:all){
@@ -346,13 +347,13 @@ public final class MainActivity extends Activity {
              " · "+Math.max(0,(System.currentTimeMillis()-started)/60000)+" мин":
             !lastError.isEmpty()?lastError:
             "Запись выключена · файлов: "+parts().length);
-        String asrText=getSharedPreferences(MagirTranscribeService.PREF,MODE_PRIVATE)
-            .getString("status","Модель речи ещё не загружена");
+        String asrText=getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE)
+            .getString("status","Whisper Small ещё не загружена");
         asrState.setText(asrText);
         boolean has=parts().length>0;
         transcribe.setEnabled(!r&&has);
         zip.setEnabled(!r&&has);
         File dir=sessionDir();
-        txt.setEnabled(!r&&dir!=null&&new File(dir,"transcript_ru.txt").isFile());
+        txt.setEnabled(!r&&dir!=null&&new File(dir,"transcript_whisper_ru.txt").isFile());
     }
 }

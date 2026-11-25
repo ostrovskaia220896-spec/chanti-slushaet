@@ -1,22 +1,30 @@
 plugins {
     id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
 }
 android {
     namespace 'ru.chanti.slushaet'
     compileSdk 35
     defaultConfig {
-        applicationId 'ru.chanti.slushaet.v05'
+        applicationId 'ru.chanti.slushaet.v06'
         minSdk 27
         targetSdk 35
-        versionCode 5
-        versionName '0.5'
+        versionCode 6
+        versionName '0.6'
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
 }
 dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation 'com.alphacephei:vosk-android:0.3.47'
+    implementation 'dev.ffmpegkit-maintained:whisper-android:1.0.0'
 }

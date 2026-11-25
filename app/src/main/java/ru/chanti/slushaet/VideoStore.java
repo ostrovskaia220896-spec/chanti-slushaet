@@ -1,13 +1,15 @@
 package ru.chanti.slushaet;
 
+import android.app.Notification;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Bundle;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.text.DateFormat;
 import java.util.Date;
 
-/** Metadata-only events from supported video players. Never accesses video frames or audio. */
+/** Records only media metadata from selected video players; never video frames or audio. */
 final class VideoStore {
     private static SharedPreferences p(Context ctx){
         return ctx.getApplicationContext().getSharedPreferences("video_observation_v05",Context.MODE_PRIVATE);
@@ -26,17 +28,54 @@ final class VideoStore {
         if(pkg.contains("ivi"))return "Иви";
         return "Видео";
     }
+
+    // Only media-session notifications (not recommendations, chats or marketing).
+    static synchronized void onMediaNotification(Context ctx,String pkg,Notification n){
+        if(!TrackStore.active(ctx)||!isVideo(pkg)||n==null||n.extras==null)return;
+        Bundle extras=n.extras;
+        boolean media=extras.containsKey(Notification.EXTRA_MEDIA_SESSION)
+            ||Notification.CATEGORY_TRANSPORT.equals(n.category);
+        if(!media)return;
+        CharSequence title=extras.getCharSequence(Notification.EXTRA_TITLE);
+        if(title==null)return;
+        String value=title.toString().trim();
+        if(isGeneric(value)||value.equals(sourceName(pkg)))return;
+        p(ctx).edit().putString("hint_package",pkg).putString("hint_title",value).apply();
+    }
+
+    private static boolean isGeneric(String title){
+        return title==null||title.trim().isEmpty()
+            ||title.equalsIgnoreCase("Название не передано плеером")
+            ||title.equalsIgnoreCase("Unknown")
+            ||title.equalsIgnoreCase("YouTube")
+            ||title.equalsIgnoreCase("Кинопоиск")
+            ||title.equalsIgnoreCase("Иви");
+    }
+
     static synchronized void observed(Context ctx,String pkg,String title,boolean playing){
-        if(!TrackStore.active(ctx)||pkg==null)return;
+        if(!TrackStore.active(ctx)||!isVideo(pkg))return;
         SharedPreferences s=p(ctx);
         String name=sourceName(pkg);
         title=title==null?"":title.trim();
-        if(title.isEmpty())title="Название не передано плеером";
+        if(isGeneric(title)){
+            if(pkg.equals(s.getString("hint_package","")))
+                title=s.getString("hint_title","");
+            if(isGeneric(title)&&pkg.equals(s.getString("package","")))
+                title=s.getString("title","");
+        }
+        if(isGeneric(title)){
+            // No meaningful public media title; do not add a fake title to history.
+            s.edit().putString("package",pkg).putString("title","").putString("app",name)
+               .putBoolean("playing",playing)
+               .putString("status","Название не опубликовано медиаплеером").apply();
+            return;
+        }
         if(pkg.equals(s.getString("package",""))
           &&title.equals(s.getString("title",""))
           &&playing==s.getBoolean("playing",false))return;
         s.edit().putString("package",pkg).putString("title",title)
-           .putBoolean("playing",playing).putString("app",name).apply();
+           .putBoolean("playing",playing).putString("app",name)
+           .putString("status","").apply();
         try{
             JSONObject e=new JSONObject();
             e.put("at",System.currentTimeMillis());
@@ -51,7 +90,9 @@ final class VideoStore {
         SharedPreferences s=p(ctx);
         String name=s.getString("app","");
         if(name.isEmpty())return "Видео пока не обнаружено";
-        return name+": "+s.getString("title","")+
+        String title=s.getString("title","");
+        if(title.isEmpty())title=s.getString("status","Название недоступно");
+        return name+": "+title+
             (s.getBoolean("playing",false)?" · играет":" · пауза");
     }
     static synchronized String report(Context ctx){
