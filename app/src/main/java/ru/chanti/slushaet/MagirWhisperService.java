@@ -70,10 +70,20 @@ public final class MagirWhisperService extends Service {
             return START_NOT_STICKY;
         }
         if(i==null||!START.equals(i.getAction())||running)return START_NOT_STICKY;
-        String name=getSharedPreferences(MagirRecorderService.PREF,MODE_PRIVATE)
-            .getString("last_session","");
+        String name=i.getStringExtra("session_dir");
+        if(name==null||name.isEmpty()){
+            name=getSharedPreferences(MagirRecorderService.PREF,MODE_PRIVATE)
+                .getString("last_session","");
+        }
         File session=new File(name);
-        if(name.isEmpty()||!session.isDirectory()){
+        try{
+            File music=getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC);
+            File root=music==null?null:new File(music,"Magir").getCanonicalFile();
+            if(root==null||name.isEmpty()||!session.isDirectory()||
+               !session.getCanonicalFile().getParentFile().equals(root)){
+                throw new IllegalArgumentException("Сессия не найдена");
+            }
+        }catch(Exception e){
             p().edit().putString("status","Нет сохранённой записи").apply();
             stopSelf();return START_NOT_STICKY;
         }
@@ -90,6 +100,7 @@ public final class MagirWhisperService extends Service {
             }
             running=true;
             p().edit().putBoolean("running",true)
+                .putString("session",session.getName())
                 .putString("status","Готовлю Whisper").apply();
             worker=new Thread(()->run(session),"Whisper-session");
             worker.start();

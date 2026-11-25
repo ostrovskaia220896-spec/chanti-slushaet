@@ -40,10 +40,10 @@ public final class MainActivity extends Activity {
     private static final int BG=Color.rgb(18,17,28),CARD=Color.rgb(36,32,50);
     private static final int WHITE=Color.rgb(245,240,251),SUB=Color.rgb(193,183,209);
     private static final int ACCENT=Color.rgb(190,157,255);
-    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804;
+    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804,SESSION_IMPORT_REQUEST=1805;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView musicTitle,musicArtist,musicStatus,listenerStatus,videoStatus;
-    private TextView magirState,asrState;
+    private TextView magirState,asrState,selectedSessionInfo;
     private Button listen,record,transcribe,zip,txt;
     private boolean pendingListen=false;
     private final Runnable refresh=new Runnable(){
@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18),dp(24),dp(18),dp(35));
         sc.addView(root);setContentView(sc);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-        root.addView(text("🎧 Чанти слушает 0.7",26,WHITE,true));
+        root.addView(text("🎧 Чанти слушает 0.8",26,WHITE,true));
         root.addView(text("Музыка — для этого чата. «Магир» — для другого.",15,SUB,false),space(8));
 
         LinearLayout music=card(root);
@@ -123,6 +123,10 @@ public final class MainActivity extends Activity {
         record=button("🎙 Начать запись «Магира»",true,v->toggleRecording());
         magir.addView(record,space(12));
         magirState=text("",13,SUB,false);magir.addView(magirState,space(8));
+        magir.addView(button("📂 Выбрать старую игровую сессию",false,v->chooseSession()),space(10));
+        selectedSessionInfo=text("",13,SUB,false);
+        magir.addView(selectedSessionInfo,space(7));
+        magir.addView(button("📥 Импортировать сохранённый ZIP",false,v->selectSessionArchive()),space(8));
         transcribe=button("📝 Точная расшифровка Whisper (русский)",false,
             v->startTranscriptionWithConsent());
         magir.addView(transcribe,space(13));
@@ -187,11 +191,123 @@ public final class MainActivity extends Activity {
     private boolean recording(){
         return MagirRecorderService.isRecording();
     }
+    private File sessionRoot(){
+        File music=getExternalFilesDir(Environment.DIRECTORY_MUSIC);
+        return music==null?null:new File(music,"Magir");
+    }
+    private boolean validSession(File f){
+        File root=sessionRoot();
+        if(root==null||f==null)return false;
+        try{
+            return f.isDirectory()&&f.getCanonicalFile().getParentFile()
+                .equals(root.getCanonicalFile());
+        }catch(Exception e){return false;}
+    }
+    private File[] allSessions(){
+        File root=sessionRoot();
+        if(root==null)return new File[0];
+        File[] list=root.listFiles(f->f.isDirectory()&&f.getName().startsWith("Magir_"));
+        if(list==null)return new File[0];
+        Arrays.sort(list,(a,b)->b.getName().compareTo(a.getName()));
+        return list;
+    }
     private File sessionDir(){
-        String path=recordPrefs().getString("last_session","");
-        if(path.isEmpty())return null;
-        File file=new File(path);
-        return file.isDirectory()?file:null;
+        String selected=recordPrefs().getString("selected_session","");
+        File preferred=selected.isEmpty()?null:new File(selected);
+        if(validSession(preferred))return preferred;
+        String recent=recordPrefs().getString("last_session","");
+        File last=recent.isEmpty()?null:new File(recent);
+        if(validSession(last))return last;
+        File[] all=allSessions();
+        return all.length==0?null:all[0];
+    }
+    private void chooseSession(){
+        if(recording()){
+            Toast.makeText(this,"Останови запись перед выбором сессии",Toast.LENGTH_LONG).show();
+            return;
+        }
+        File[] dirs=allSessions();
+        if(dirs.length==0){
+            Toast.makeText(this,"Сессии пока не найдены",Toast.LENGTH_LONG).show();return;
+        }
+        String[] names=new String[dirs.length];
+        for(int i=0;i<dirs.length;i++){
+            File[] audio=dirs[i].listFiles((p,n)->n.matches("part_\\d{4}\\.m4a"));
+            File[] completed=dirs[i].listFiles((p,n)->n.matches("part_\\d{4}\\.whisper.txt"));
+            names[i]=dirs[i].getName().replace("Magir_","")+
+                " · аудио "+(audio==null?0:audio.length)+
+                " · расшифровано "+(completed==null?0:completed.length);
+        }
+        new AlertDialog.Builder(this).setTitle("Выбери игровую сессию")
+            .setItems(names,(dialog,which)->{
+                recordPrefs().edit().putString("selected_session",
+                    dirs[which].getAbsolutePath()).apply();
+                update();
+            })
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void selectSessionArchive(){
+        Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.setType("application/zip");
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        startActivityForResult(pick,SESSION_IMPORT_REQUEST);
+    }
+    private void importSessionArchive(Uri uri){
+        new Thread(()->{
+            File destination=null;
+            try{
+                File root=sessionRoot();
+                if(root==null)throw new IllegalStateException("Нет хранилища");
+                if(!root.exists()&&!root.mkdirs())throw new IllegalStateException("Нет папки");
+                String stamp=new java.text.SimpleDateFormat("yyyyMMdd_HHmmss",
+                    Locale.US).format(new java.util.Date());
+                destination=new File(root,"Magir_import_"+stamp);
+                if(!destination.mkdir())throw new IllegalStateException("Не создать папку");
+                long total=0;
+                int count=0;
+                try(java.util.zip.ZipInputStream stream=new java.util.zip.ZipInputStream(
+                    getContentResolver().openInputStream(uri))){
+                    java.util.zip.ZipEntry item;
+                    byte[] bytes=new byte[65536];
+                    while((item=stream.getNextEntry())!=null){
+                        String name=item.getName();
+                        if(item.isDirectory()||name.contains("/")||name.contains("\\")
+                            ||!(name.matches("part_\\d{4}\\.m4a") ||
+                                name.matches("part_\\d{4}\\.whisper.txt") ||
+                                name.equals("transcript_whisper_ru.txt")))continue;
+                        if(++count>200)throw new IllegalStateException("Слишком много файлов");
+                        File output=new File(destination,name);
+                        try(FileOutputStream out=new FileOutputStream(output)){
+                            int n;
+                            while((n=stream.read(bytes))!=-1){
+                                if(n==0)continue;
+                                total+=n;
+                                if(total>1500L*1024*1024)
+                                    throw new IllegalStateException("Архив слишком велик");
+                                out.write(bytes,0,n);
+                            }
+                        }
+                        stream.closeEntry();
+                    }
+                }
+                if(count==0)throw new IllegalStateException("Нет файлов Магира");
+                recordPrefs().edit().putString("selected_session",
+                    destination.getAbsolutePath()).apply();
+                runOnUiThread(()->{
+                    Toast.makeText(this,"Сессия импортирована",Toast.LENGTH_LONG).show();
+                    update();
+                });
+            }catch(Exception ex){
+                if(destination!=null){
+                    File[] files=destination.listFiles();
+                    if(files!=null)for(File f:files)f.delete();
+                    destination.delete();
+                }
+                String message=ex.getMessage();
+                runOnUiThread(()->Toast.makeText(this,
+                    "Ошибка импорта: "+message,Toast.LENGTH_LONG).show());
+            }
+        },"Magir-import").start();
     }
     private File[] parts(){
         File dir=sessionDir();
@@ -227,6 +343,7 @@ public final class MainActivity extends Activity {
     }
     private void startRecording(){
         try{
+            recordPrefs().edit().remove("selected_session").apply();
             Intent i=new Intent(this,MagirRecorderService.class).setAction(MagirRecorderService.START);
             if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
             handler.postDelayed(this::update,900);
@@ -298,7 +415,10 @@ public final class MainActivity extends Activity {
 
     private void launchTranscriber(){
         try{
+            File target=sessionDir();
+            if(!validSession(target))throw new IllegalStateException("Сессия не выбрана");
             Intent i=new Intent(this,MagirWhisperService.class).setAction(MagirWhisperService.START);
+            i.putExtra("session_dir",target.getAbsolutePath());
             if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
             handler.postDelayed(this::update,1000);
         }catch(Exception e){
@@ -313,6 +433,8 @@ public final class MainActivity extends Activity {
         if(parts().length==0){
             Toast.makeText(this,"Нет записанных фрагментов",Toast.LENGTH_LONG).show();return;
         }
+        getPreferences(MODE_PRIVATE).edit().putString("export_session",
+            sessionDir().getAbsolutePath()).apply();
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")
             .putExtra(Intent.EXTRA_TITLE,sessionDir().getName()+".zip");
@@ -323,6 +445,8 @@ public final class MainActivity extends Activity {
         if(dir==null||!new File(dir,"transcript_whisper_ru.txt").isFile()){
             Toast.makeText(this,"Сначала запусти расшифровку",Toast.LENGTH_LONG).show();return;
         }
+        getPreferences(MODE_PRIVATE).edit().putString("export_session",
+            dir.getAbsolutePath()).apply();
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain")
             .putExtra(Intent.EXTRA_TITLE,dir.getName()+"_transcript.txt");
@@ -331,14 +455,19 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int req,int result,Intent data){
         super.onActivityResult(req,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(req==SESSION_IMPORT_REQUEST){
+            importSessionArchive(data.getData());
+            return;
+        }
         if(req==MODEL_IMPORT_REQUEST){
             importSelectedModel(data.getData());
             return;
         }
         if(req!=ZIP_REQUEST&&req!=TEXT_REQUEST)return;
         Uri location=data.getData();
-        File dir=sessionDir();
-        if(dir==null)return;
+        String exportPath=getPreferences(MODE_PRIVATE).getString("export_session","");
+        File dir=exportPath.isEmpty()?null:new File(exportPath);
+        if(!validSession(dir))return;
         boolean zipMode=req==ZIP_REQUEST;
         Toast.makeText(this,"Сохраняю файл…",Toast.LENGTH_SHORT).show();
         new Thread(()->{
@@ -349,7 +478,8 @@ public final class MainActivity extends Activity {
                 }else{
                     try(ZipOutputStream z=new ZipOutputStream(out)){
                         File[] all=dir.listFiles((p,name)->name.matches("part_\\d{4}\\.m4a")
-                                ||name.equals("transcript_whisper_ru.txt"));
+                                ||name.equals("transcript_whisper_ru.txt")
+                                ||name.matches("part_\\d{4}\\.whisper.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");
                         Arrays.sort(all,Comparator.comparing(File::getName));
                         for(File f:all){
@@ -398,6 +528,16 @@ public final class MainActivity extends Activity {
              " · "+Math.max(0,(System.currentTimeMillis()-started)/60000)+" мин":
             !lastError.isEmpty()?lastError:
             "Запись выключена · файлов: "+parts().length);
+        File chosen=sessionDir();
+        if(selectedSessionInfo!=null){
+            File[] selectedParts=parts();
+            File[] done=chosen==null?null:chosen.listFiles(
+                (p,n)->n.matches("part_\\d{4}\\.whisper.txt"));
+            selectedSessionInfo.setText(chosen==null?"Нет сохранённой сессии":
+                "Выбрана: "+chosen.getName()+
+                " · аудио: "+selectedParts.length+
+                " · готовых частей текста: "+(done==null?0:done.length));
+        }
         String asrText=getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE)
             .getString("status","Whisper Small ещё не загружена");
         asrState.setText(asrText);
