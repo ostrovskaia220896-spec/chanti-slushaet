@@ -25,7 +25,7 @@ final class MagirSpeechDecoder {
             String d=m.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             return d==null?0:Long.parseLong(d)/1000.0;
         }catch(Exception e){return 0;}
-        finally{try{m.release();}catch(RuntimeException ignored){}}
+        finally{try{m.release();}catch(Exception ignored){}}
     }
     static void transcribe(File source,Model model,File transcript,double offset,Progress progress)
             throws Exception {
