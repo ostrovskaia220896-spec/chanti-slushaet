@@ -1,7 +1,7 @@
 name: Build Android APK
 on:
   push:
-    branches: [main, v0.5-integrated, v0.5-buildfix, v0.6-whisper, v0.6-buildfix]
+    branches: [main, v0.5-integrated, v0.5-buildfix, v0.6-whisper, v0.6-buildfix, v0.7-download-recovery]
   workflow_dispatch:
 
 permissions:
@@ -34,6 +34,6 @@ jobs:
       - name: Save APK
         uses: actions/upload-artifact@v4
         with:
-          name: Chanti-Slushaet-v0.6-APK
+          name: Chanti-Slushaet-v0.7-APK
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

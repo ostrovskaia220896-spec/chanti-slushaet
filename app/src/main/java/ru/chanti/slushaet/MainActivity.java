@@ -40,7 +40,7 @@ public final class MainActivity extends Activity {
     private static final int BG=Color.rgb(18,17,28),CARD=Color.rgb(36,32,50);
     private static final int WHITE=Color.rgb(245,240,251),SUB=Color.rgb(193,183,209);
     private static final int ACCENT=Color.rgb(190,157,255);
-    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803;
+    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView musicTitle,musicArtist,musicStatus,listenerStatus,videoStatus;
     private TextView magirState,asrState;
@@ -94,7 +94,7 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18),dp(24),dp(18),dp(35));
         sc.addView(root);setContentView(sc);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-        root.addView(text("🎧 Чанти слушает 0.6",26,WHITE,true));
+        root.addView(text("🎧 Чанти слушает 0.7",26,WHITE,true));
         root.addView(text("Музыка — для этого чата. «Магир» — для другого.",15,SUB,false),space(8));
 
         LinearLayout music=card(root);
@@ -126,6 +126,8 @@ public final class MainActivity extends Activity {
         transcribe=button("📝 Точная расшифровка Whisper (русский)",false,
             v->startTranscriptionWithConsent());
         magir.addView(transcribe,space(13));
+        magir.addView(button("⚙ Не удалось скачать модель? Исправить",false,
+            v->showModelRecovery()),space(8));
         asrState=text("",13,SUB,false);magir.addView(asrState,space(7));
         txt=button("📄 Сохранить расшифровку TXT",false,v->saveTranscript());
         magir.addView(txt,space(13));
@@ -249,6 +251,51 @@ public final class MainActivity extends Activity {
             .setPositiveButton("Скачать и расшифровать",(d,w)->launchTranscriber())
             .setNegativeButton("Отмена",null).show();
     }
+    private void showModelRecovery(){
+        new AlertDialog.Builder(this)
+            .setTitle("Не удалось скачать Whisper?")
+            .setMessage("Можно повторить загрузку позже либо скачать ggml-small.bin " +
+                "в браузере и выбрать его здесь. Приложение проверит размер и SHA-256. " +
+                "Поддельная модель установлена не будет.")
+            .setPositiveButton("Выбрать файл",(d,w)->pickModel())
+            .setNeutralButton("Скачать в браузере",(d,w)->openModelInBrowser())
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void pickModel(){
+        Intent pick=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        pick.setType("*/*");
+        pick.addCategory(Intent.CATEGORY_OPENABLE);
+        try{startActivityForResult(pick,MODEL_IMPORT_REQUEST);}
+        catch(Exception e){Toast.makeText(this,"Не открыть выбор файла",Toast.LENGTH_LONG).show();}
+    }
+    private void openModelInBrowser(){
+        try{startActivity(new Intent(Intent.ACTION_VIEW,
+            Uri.parse(WhisperModelInstaller.PUBLIC_MODEL_URL)));}
+        catch(Exception e){Toast.makeText(this,"Не удалось открыть браузер",Toast.LENGTH_LONG).show();}
+    }
+    private void importSelectedModel(Uri uri){
+        final android.content.SharedPreferences prefs =
+            getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE);
+        prefs.edit().putString("status","Импортирую модель Whisper…").apply();
+        new Thread(()->{
+            try{
+                WhisperModelInstaller.importFromUri(this,uri,
+                    message->prefs.edit().putString("status",message).apply());
+                runOnUiThread(()->{
+                    Toast.makeText(this,"Модель проверена! Запускаю расшифровку.",
+                        Toast.LENGTH_LONG).show();
+                    launchTranscriber();
+                });
+            }catch(Exception error){
+                String message=WhisperModelInstaller.readable(error);
+                prefs.edit().putString("status","Ошибка модели: "+message).apply();
+                runOnUiThread(()->new AlertDialog.Builder(this)
+                    .setTitle("Не удалось установить модель")
+                    .setMessage(message).setPositiveButton("Понятно",null).show());
+            }
+        },"Whisper-model-import").start();
+    }
+
     private void launchTranscriber(){
         try{
             Intent i=new Intent(this,MagirWhisperService.class).setAction(MagirWhisperService.START);
@@ -284,6 +331,10 @@ public final class MainActivity extends Activity {
     @Override protected void onActivityResult(int req,int result,Intent data){
         super.onActivityResult(req,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(req==MODEL_IMPORT_REQUEST){
+            importSelectedModel(data.getData());
+            return;
+        }
         if(req!=ZIP_REQUEST&&req!=TEXT_REQUEST)return;
         Uri location=data.getData();
         File dir=sessionDir();
