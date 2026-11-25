@@ -3,16 +3,25 @@
     <queries>
         <package android:name="com.openai.chatgpt" />
     </queries>
-    <application android:allowBackup="false" android:label="Чанти слушает"
-        android:icon="@drawable/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+    <application
+        android:allowBackup="false"
+        android:label="Чанти слушает 0.2"
+        android:icon="@drawable/ic_launcher"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+            </intent-filter>
         </activity>
-        <service android:name=".MusicListenerService" android:label="Чанти — текущая песня"
+        <service android:name=".MusicListenerService"
+            android:label="Чанти — автоопределение (необязательно)"
             android:exported="true"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
             <intent-filter>
