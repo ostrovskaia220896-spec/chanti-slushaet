@@ -10,5 +10,16 @@ final class TrackRules {
         return trackChange && heardMs >= 0 && heardMs < 30000
             ? "короткое прослушивание — не обязательно дизлайк" : "";
     }
+    static String ratingNote(String previous, String current) {
+        if ("liked".equals(current)) {
+            return "unliked".equals(previous) ?
+                "лайк появился (по данным плеера)" : "лайк уже стоит (по данным плеера)";
+        }
+        if ("unliked".equals(current)) {
+            return "liked".equals(previous) ?
+                "лайк снят (по данным плеера)" : "сейчас без лайка (по данным плеера)";
+        }
+        return "";
+    }
     private static String safe(String s) { return s == null ? "" : s.trim(); }
 }

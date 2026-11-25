@@ -13,6 +13,14 @@ public final class TrackRulesTest {
     @Test public void ignoresWhitespaceOnlyChanges() {
         assertFalse(TrackRules.changed("Песня ", " Группа", "Песня", "Группа "));
     }
+    @Test public void capturesLikeUnlikeLikeSequence() {
+        assertEquals("лайк уже стоит (по данным плеера)", TrackRules.ratingNote("", "liked"));
+        assertEquals("лайк снят (по данным плеера)", TrackRules.ratingNote("liked", "unliked"));
+        assertEquals("лайк появился (по данным плеера)", TrackRules.ratingNote("unliked", "liked"));
+    }
+    @Test public void showsNotLikedWithoutClaimingRemoval() {
+        assertEquals("сейчас без лайка (по данным плеера)", TrackRules.ratingNote("", "unliked"));
+    }
     @Test public void shortListenDoesNotMeanDislike() {
         assertTrue(TrackRules.switchNote(2000, true).contains("не обязательно дизлайк"));
         assertEquals("", TrackRules.switchNote(31000, true));

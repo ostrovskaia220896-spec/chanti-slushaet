@@ -1,7 +1,7 @@
 name: Build Android APK
 on:
   push:
-    branches: [main, v0.3-build, v0.4-reliability]
+    branches: [main, v0.3-build, v0.4-reliability, v0.4-like-display]
   workflow_dispatch:
 
 permissions:

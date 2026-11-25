@@ -87,8 +87,9 @@ public final class TrackStore {
             if(rating.getRatingStyle()==Rating.RATING_HEART)state=rating.hasHeart()?"liked":"unliked";
             if(rating.getRatingStyle()==Rating.RATING_THUMB_UP_DOWN)state=rating.isThumbUp()?"liked":"unliked";
             if(!state.isEmpty()&&!state.equals(a.getString("rating",""))){
+                String previous = a.getString("rating","");
                 a.edit().putString("rating",state).apply();
-                add(a,"rating",heard(a),state.equals("liked")?"лайк подтверждён метаданными":"нет лайка в метаданных");
+                add(a,"rating",heard(a),TrackRules.ratingNote(previous,state));
             }
         }
     }
@@ -116,7 +117,11 @@ public final class TrackStore {
                 case "track_end":label="■";break;
                 case "pause":label="⏸";break;
                 case "resume":label="▷";break;
-                case "rating":label="♥";break;
+                case "rating":
+                    String note=e.optString("note");
+                    label=note.contains("лайк снят")||note.contains("без лайка")||
+                          note.contains("нет лайка")?"♡":"♥";
+                    break;
                 case "session_start":label="НАЧАЛО";break;
                 case "session_stop":label="КОНЕЦ";break;
                 default:label=kind;
