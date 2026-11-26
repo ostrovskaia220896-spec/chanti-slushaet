@@ -55,6 +55,7 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
+        TrackStore.recoverOutbox(this);
         MagirSessions.recover(this);
         MagirRecorderService.reconcile(this);
         MagirWhisperService.reconcile(this);
