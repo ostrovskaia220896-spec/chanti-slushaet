@@ -14,23 +14,26 @@ public final class TrackStore {
     private TrackStore() {}
     static final class Snapshot {
         final String title, artist;
-        final boolean playing, active;
+        final boolean playing, active, fresh;
         final long heardMs;
-        Snapshot(String t,String a,boolean p,boolean on,long ms){title=t;artist=a;playing=p;active=on;heardMs=ms;}
+        Snapshot(String t,String a,boolean p,boolean on,long ms,boolean valid){
+            title=t;artist=a;playing=p;active=on;heardMs=ms;fresh=valid;
+        }
     }
     private static SharedPreferences p(Context c){
         return c.getApplicationContext().getSharedPreferences(PREF,Context.MODE_PRIVATE);
     }
     static synchronized boolean active(Context c){return p(c).getBoolean("active",false);}
     static synchronized Snapshot snapshot(Context c){
-        SharedPreferences a=p(c);boolean playing=a.getBoolean("playing",false);
-        long heard=a.getLong("heard",0),since=a.getLong("since",0);
-        if(playing&&since>0)heard+=Math.max(0,System.currentTimeMillis()-since);
-        return new Snapshot(a.getString("title",""),a.getString("artist",""),playing,a.getBoolean("active",false),heard);
+        SharedPreferences a=p(c);
+        boolean fresh=TrackRules.observationFresh(a.getLong("observed_at",0),System.currentTimeMillis());
+        return new Snapshot(a.getString("title",""),a.getString("artist",""),
+            fresh&&a.getBoolean("playing",false),a.getBoolean("active",false),heard(a),fresh);
     }
     private static long heard(SharedPreferences a){
         long result=a.getLong("heard",0),since=a.getLong("since",0);
-        if(a.getBoolean("playing",false)&&since>0)result+=Math.max(0,System.currentTimeMillis()-since);
+        if(a.getBoolean("playing",false))
+            result+=TrackRules.observedPlayingMs(since,a.getLong("observed_at",0),System.currentTimeMillis());
         return result;
     }
     private static void add(Context context,SharedPreferences a,String kind,long ms,String note){
@@ -65,7 +68,7 @@ public final class TrackStore {
         SharedPreferences a=p(c);if(a.getBoolean("active",false))return;
         a.edit().putBoolean("active",true).putString("title","").putString("artist","")
             .putLong("heard",0).putLong("since",0).putBoolean("playing",false)
-            .putString("rating","").apply();
+            .putString("rating","").remove("observed_at").apply();
         add(c,a,"session_start",0,"");
     }
     private static void endSong(Context c,SharedPreferences a,boolean changed){
@@ -77,26 +80,34 @@ public final class TrackStore {
     static synchronized void stop(Context c){
         SharedPreferences a=p(c);if(!a.getBoolean("active",false))return;
         endSong(c,a,false);
-        a.edit().putBoolean("active",false).putBoolean("playing",false).putLong("since",0).apply();
+        a.edit().putBoolean("active",false).putBoolean("playing",false).putLong("since",0)
+            .remove("observed_at").apply();
         add(c,a,"session_stop",0,"");
     }
     static synchronized void onMusic(Context c,String title,String artist,boolean playing,Rating rating){
         SharedPreferences a=p(c);
         if(!a.getBoolean("active",false)||title==null||title.trim().isEmpty())return;
         title=title.trim();artist=artist==null?"":artist.trim();
+        long now=System.currentTimeMillis();
+        // Close a stale interval before accepting a new observation, even if the title matches.
+        if(a.getBoolean("playing",false)&&!TrackRules.observationFresh(a.getLong("observed_at",0),now)){
+            lost(c);
+        }
         boolean different=TrackRules.changed(
             a.getString("title",""), a.getString("artist",""), title, artist);
         if(different){
             endSong(c,a,true);
             a.edit().putString("title",title).putString("artist",artist)
                 .putLong("heard",0).putLong("since",playing?System.currentTimeMillis():0)
-                .putBoolean("playing",playing).putString("rating","").apply();
+                .putBoolean("playing",playing).putString("rating","").putLong("observed_at",now).apply();
             add(c,a,"track_start",0,playing?"играет":"пауза");
         }else if(a.getBoolean("playing",false)!=playing){
             long ms=heard(a);
             a.edit().putLong("heard",ms).putLong("since",playing?System.currentTimeMillis():0)
-                .putBoolean("playing",playing).apply();
+                .putBoolean("playing",playing).putLong("observed_at",now).apply();
             add(c,a,playing?"resume":"pause",ms,"");
+        }else{
+            a.edit().putLong("observed_at",now).apply();
         }
         if(rating!=null&&rating.isRated()){
             String state="";
@@ -111,10 +122,14 @@ public final class TrackStore {
     }
     static synchronized void lost(Context c){
         SharedPreferences a=p(c);
-        if(!a.getBoolean("active",false)||!a.getBoolean("playing",false))return;
+        if(!a.getBoolean("active",false))return;
+        if(!a.getBoolean("playing",false)){
+            a.edit().remove("observed_at").apply();return;
+        }
         long ms=heard(a);
-        a.edit().putBoolean("playing",false).putLong("heard",ms).putLong("since",0).apply();
-        add(c,a,"pause",ms,"медиасессия стала недоступна");
+        a.edit().putBoolean("playing",false).putLong("heard",ms).putLong("since",0)
+            .remove("observed_at").apply();
+        add(c,a,"pause",ms,"медиасессия стала недоступна; время после потери связи не подтверждено");
     }
     static synchronized String report(Context c){
         JSONArray ev;
