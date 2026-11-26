@@ -44,8 +44,10 @@ public final class TrackStore {
             e.put("ms",ms);e.put("note",note);
             try{
                 MusicEventOutbox.enqueue(context,e);
-                a.edit().putInt("outbox_pending",MusicEventOutbox.pendingCount(context))
-                    .remove("outbox_error").apply();
+                SharedPreferences.Editor outboxStatus=a.edit()
+                    .putInt("outbox_pending",MusicEventOutbox.pendingCount(context));
+                if(a.getBoolean("outbox_migrated_v1",false))outboxStatus.remove("outbox_error");
+                outboxStatus.apply();
             }catch(RuntimeException storageError){
                 a.edit().putBoolean("outbox_migrated_v1",false)
                     .putString("outbox_error",storageError.getClass().getSimpleName()).apply();
