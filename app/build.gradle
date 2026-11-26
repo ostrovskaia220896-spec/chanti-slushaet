@@ -2,17 +2,41 @@ plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
 }
+
+def releaseKeyPath = System.getenv("CHANTI_KEYSTORE_PATH")
+def releaseStorePassword = System.getenv("CHANTI_KEYSTORE_PASSWORD")
+def releaseKeyAlias = System.getenv("CHANTI_KEY_ALIAS")
+def releaseKeyPassword = System.getenv("CHANTI_KEY_PASSWORD")
+def hasReleaseSigning = releaseKeyPath && releaseStorePassword && releaseKeyAlias && releaseKeyPassword
+
 android {
     namespace 'ru.chanti.slushaet'
     compileSdk 35
     defaultConfig {
-        applicationId 'ru.chanti.slushaet.v08'
+        // Stable ID for all future upgrades. Earlier .v06/.v07/.v08 builds remain separate apps.
+        applicationId 'ru.chanti.slushaet'
         minSdk 27
         targetSdk 35
-        versionCode 8
-        versionName '0.8'
+        versionCode 100
+        versionName '1.0.0-rc1'
         ndk {
             abiFilters 'arm64-v8a'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasReleaseSigning) {
+                storeFile file(releaseKeyPath)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+    buildTypes {
+        release {
+            if (hasReleaseSigning) signingConfig signingConfigs.release
+            minifyEnabled false
         }
     }
     compileOptions {

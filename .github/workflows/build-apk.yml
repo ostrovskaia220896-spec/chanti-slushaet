@@ -1,7 +1,7 @@
-name: Build Android APK
+name: Build Chanti Slushaet Android
 on:
   push:
-    branches: [main, v0.5-integrated, v0.5-buildfix, v0.6-whisper, v0.6-buildfix, v0.7-download-recovery, v0.8-session-recovery]
+    branches: [main, v0.5-integrated, v0.5-buildfix, v0.6-whisper, v0.6-buildfix, v0.7-download-recovery, v0.8-session-recovery, release-1.0-dev]
   workflow_dispatch:
 
 permissions:
@@ -10,6 +10,11 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      CHANTI_KEYSTORE_BASE64: ${{ secrets.CHANTI_KEYSTORE_BASE64 }}
+      CHANTI_KEYSTORE_PASSWORD: ${{ secrets.CHANTI_KEYSTORE_PASSWORD }}
+      CHANTI_KEY_ALIAS: ${{ secrets.CHANTI_KEY_ALIAS }}
+      CHANTI_KEY_PASSWORD: ${{ secrets.CHANTI_KEY_PASSWORD }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -24,16 +29,33 @@ jobs:
           gradle-version: '8.9'
       - name: Install Android API 35
         run: |
-          SDKROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKROOT="$ANDROID_HOME"
           SDKMANAGER="$(find "$SDKROOT/cmdline-tools" -type f -name sdkmanager | head -n 1)"
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
-      - name: Unit tests and APK
+      - name: Unit tests and debug APK
         run: gradle --no-daemon testDebugUnitTest assembleDebug
-      - name: Save APK
+      - name: Prepare stable release signing key
+        if: ${{ env.CHANTI_KEYSTORE_BASE64 != '' }}
+        run: |
+          echo "$CHANTI_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/chanti-release.jks"
+          test -s "$RUNNER_TEMP/chanti-release.jks"
+      - name: Build signed release APK
+        if: ${{ env.CHANTI_KEYSTORE_BASE64 != '' && env.CHANTI_KEYSTORE_PASSWORD != '' && env.CHANTI_KEY_ALIAS != '' && env.CHANTI_KEY_PASSWORD != '' }}
+        env:
+          CHANTI_KEYSTORE_PATH: ${{ runner.temp }}/chanti-release.jks
+        run: gradle --no-daemon testReleaseUnitTest assembleRelease
+      - name: Save debug APK for technical testing only
         uses: actions/upload-artifact@v4
         with:
-          name: Chanti-Slushaet-v0.8-APK
+          name: Chanti-Slushaet-1.0.0-rc1-debug-test
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+      - name: Save signed release APK
+        if: ${{ env.CHANTI_KEYSTORE_BASE64 != '' && env.CHANTI_KEYSTORE_PASSWORD != '' && env.CHANTI_KEY_ALIAS != '' && env.CHANTI_KEY_PASSWORD != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chanti-Slushaet-1.0.0-rc1-release
+          path: app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error

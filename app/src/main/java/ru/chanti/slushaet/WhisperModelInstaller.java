@@ -34,7 +34,7 @@ final class WhisperModelInstaller {
     static boolean installed(Context ctx){
         File f=file(ctx);
         return f.isFile()&&f.length()==EXPECTED &&
-            ctx.getSharedPreferences("whisper_model_v06",Context.MODE_PRIVATE)
+            ctx.getSharedPreferences("whisper_model_v10",Context.MODE_PRIVATE)
                 .getBoolean("verified",false);
     }
     private static File folder(Context ctx)throws Exception{
@@ -78,7 +78,7 @@ final class WhisperModelInstaller {
         connection.setConnectTimeout(25000);
         connection.setReadTimeout(90000);
         connection.setInstanceFollowRedirects(true);
-        connection.setRequestProperty("User-Agent","ChantiSlushaet/0.7 (Android)");
+        connection.setRequestProperty("User-Agent","ChantiSlushaet/1.0.0 (Android)");
         connection.setRequestProperty("Accept-Encoding","identity");
         if(have>0)connection.setRequestProperty("Range","bytes="+have+"-");
         try{
@@ -174,7 +174,7 @@ final class WhisperModelInstaller {
             throw new java.io.IOException("Нельзя заменить старую модель");
         if(!source.renameTo(target))
             throw new java.io.IOException("Не удалось сохранить модель на телефоне");
-        ctx.getSharedPreferences("whisper_model_v06",Context.MODE_PRIVATE)
+        ctx.getSharedPreferences("whisper_model_v10",Context.MODE_PRIVATE)
             .edit().putBoolean("verified",true).apply();
         status.update("Модель Whisper проверена и установлена.");
         return target;

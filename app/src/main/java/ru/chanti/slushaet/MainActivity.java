@@ -55,6 +55,9 @@ public final class MainActivity extends Activity {
 
     @Override public void onCreate(Bundle state){
         super.onCreate(state);
+        MagirSessions.recover(this);
+        MagirRecorderService.reconcile(this);
+        MagirWhisperService.reconcile(this);
         draw();
     }
     @Override protected void onResume(){
@@ -97,7 +100,7 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18),dp(24),dp(18),dp(35));
         sc.addView(root);setContentView(sc);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-        root.addView(text("🎧 Чанти слушает 0.8",26,WHITE,true));
+        root.addView(text("🎧 Чанти слушает",26,WHITE,true));
         root.addView(text("Музыка — для этого чата. «Магир» — для другого.",15,SUB,false),space(8));
 
         LinearLayout music=card(root);
@@ -121,8 +124,8 @@ public final class MainActivity extends Activity {
 
         LinearLayout magir=card(root);
         magir.addView(text("🎙 МИРЫ МАГИРА",19,WHITE,true));
-        magir.addView(text("Отдельная запись по 5 минут в каждом файле. " +
-            "Видимое уведомление и работа при блокировке экрана.",13,SUB,false),space(7));
+        magir.addView(text("Пять минут на фрагмент. Запись и расшифровка независимы; " +
+            "можно ставить несколько сессий в очередь.",13,SUB,false),space(7));
         record=button("🎙 Начать запись «Магира»",true,v->toggleRecording());
         magir.addView(record,space(12));
         magirState=text("",13,SUB,false);magir.addView(magirState,space(8));
@@ -301,7 +304,13 @@ public final class MainActivity extends Activity {
                 Toast.LENGTH_LONG).show();return;
         }
         if(parts().length==0){
-            Toast.makeText(this,"Нет сохранённых частей записи",Toast.LENGTH_LONG).show();return;
+            Toast.makeText(this,"Нет завершённых фрагментов записи",Toast.LENGTH_LONG).show();return;
+        }
+        if(MagirSessions.fullyTranscribed(chosen)){
+            Toast.makeText(this,"Эта запись уже полностью расшифрована",Toast.LENGTH_LONG).show();return;
+        }
+        if(MagirWhisperService.isQueuedOrRunning(this,chosen.getName())){
+            Toast.makeText(this,"Эта запись уже в очереди или обрабатывается",Toast.LENGTH_LONG).show();return;
         }
         if(WhisperModelInstaller.installed(this)){launchTranscriber();return;}
         new AlertDialog.Builder(this).setTitle("Точная русская расшифровка Whisper")
@@ -377,8 +386,8 @@ public final class MainActivity extends Activity {
             Toast.makeText(this,"Эта запись ещё идёт. Экспортируй её после остановки.",
                 Toast.LENGTH_LONG).show();return;
         }
-        if(parts().length==0){
-            Toast.makeText(this,"Нет записанных фрагментов",Toast.LENGTH_LONG).show();return;
+        if(parts().length==0&&MagirSessions.pendingAudioCount(chosen)==0){
+            Toast.makeText(this,"В этой записи пока нет аудиофрагментов",Toast.LENGTH_LONG).show();return;
         }
         pendingExportSession=sessionDir();
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
@@ -399,7 +408,12 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int req,int result,Intent data){
         super.onActivityResult(req,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(result!=RESULT_OK||data==null||data.getData()==null){
+            if(req==ZIP_REQUEST)pendingExportSession=null;
+            if(req==TEXT_REQUEST)pendingExportSession=null;
+            if(req==TXT_IMPORT_REQUEST)pendingTextImportSession=null;
+            return;
+        }
         if(req==MODEL_IMPORT_REQUEST){
             importSelectedModel(data.getData());return;
         }
@@ -427,8 +441,9 @@ public final class MainActivity extends Activity {
                     copy(transcript,out);
                 }else{
                     try(ZipOutputStream z=new ZipOutputStream(out)){
-                        File[] all=dir.listFiles((p,name)->name.matches("part_\\d{4}\\.m4a")
-                                ||name.matches("part_\\d{4}\\.whisper\\.txt")
+                        File[] all=dir.listFiles((p,name)->MagirFileRules.isCompleteAudio(name)
+                                ||MagirFileRules.isPendingAudio(name)
+                                ||MagirFileRules.isPartTranscript(name)
                                 ||name.equals("transcript_whisper_ru.txt")
                                 ||name.equals("transcript_imported_ru.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");
@@ -458,6 +473,8 @@ public final class MainActivity extends Activity {
     }
     private void update(){
         if(listen==null)return;
+        MagirRecorderService.reconcile(this);
+        MagirWhisperService.reconcile(this);
         TrackStore.Snapshot song=TrackStore.snapshot(this);
         listen.setText(song.active?"■ Завершить прослушивание":"▶ Чанти, слушаем!");
         listenerStatus.setText(hasListener()?"✓ Доступ к медиасессиям включён":
@@ -488,10 +505,17 @@ public final class MainActivity extends Activity {
         boolean has=MagirSessions.audio(dir).length>0;
         chooser.setText("📂 Выбрать запись ("+MagirSessions.all(this).length+")");
         selectedState.setText(dir==null?"Записей пока нет":MagirSessions.label(dir));
-        boolean asrRunning=getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE)
-            .getBoolean("running",false);
-        transcribe.setEnabled(has&&!asrRunning);
-        zip.setEnabled(has);
+        boolean currentRecording=recording()&&dir!=null&&dir.getAbsolutePath().equals(
+            recordPrefs().getString("last_session",""));
+        boolean queued=dir!=null&&MagirWhisperService.isQueuedOrRunning(this,dir.getName());
+        boolean done=MagirSessions.fullyTranscribed(dir);
+        boolean busy=MagirWhisperService.isBusy(this);
+        transcribe.setText(queued?"✓ В очереди / обрабатывается":
+            currentRecording?"⏸ Сначала заверши эту запись":
+            done?"✓ Все фрагменты расшифрованы":
+            busy?"＋ Добавить в очередь":"📝 Точная расшифровка Whisper (русский)");
+        transcribe.setEnabled(has&&!done&&!queued&&!currentRecording);
+        zip.setEnabled((has||MagirSessions.pendingAudioCount(dir)>0)&&!currentRecording);
         txt.setEnabled(MagirSessions.transcript(dir)!=null);
     }
 }

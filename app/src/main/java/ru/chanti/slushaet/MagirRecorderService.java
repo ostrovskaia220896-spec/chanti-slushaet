@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.Context;
 import android.content.pm.ServiceInfo;
 import android.media.MediaRecorder;
 import android.os.Build;
@@ -31,11 +32,27 @@ public final class MagirRecorderService extends Service {
     private static final long CHUNK_MS=5*60*1000L;
     private static final int NOTICE_ID=102;
     private MediaRecorder recorder;
-    private File output, sessionDir;
+    private File output, pendingOutput, sessionDir;
     private int chunkIndex;
     private boolean recording;
     private static volatile boolean activeRecording;
     public static boolean isRecording(){return activeRecording;}
+    static void reconcile(Context context){
+        android.content.SharedPreferences p=context.getSharedPreferences(PREF,Context.MODE_PRIVATE);
+        if(p.getBoolean("recording",false)&&!activeRecording){
+            String path=p.getString("last_session","");
+            if(!path.isEmpty()){
+                File candidate=new File(path);
+                File session=MagirSessions.find(context,candidate.getName());
+                if(session!=null)MagirSessions.markStopped(session,System.currentTimeMillis());
+            }
+            p.edit().putBoolean("recording",false)
+                .putLong("stopped_at",System.currentTimeMillis())
+                .putString("last_error",
+                    "Запись была прервана системой. Завершённые фрагменты сохранены; последний мог остаться незавершённым.")
+                .apply();
+        }
+    }
     private PowerManager.WakeLock wake;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final Runnable rotate=new Runnable(){
@@ -87,9 +104,7 @@ public final class MagirRecorderService extends Service {
             else startForeground(NOTICE_ID,notice());
             File root=getExternalFilesDir(Environment.DIRECTORY_MUSIC);
             if(root==null)throw new IllegalStateException("Хранилище недоступно");
-            String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());
-            sessionDir=new File(new File(root,"Magir"),"Magir_"+stamp);
-            if(!sessionDir.exists()&&!sessionDir.mkdirs())throw new IllegalStateException("Папка не создана");
+            sessionDir=MagirSessions.createRecordingSession(this);
             MagirSessions.setSelected(this,sessionDir);
             chunkIndex=0;
             PowerManager pm=(PowerManager)getSystemService(POWER_SERVICE);
@@ -114,8 +129,12 @@ public final class MagirRecorderService extends Service {
 
     private boolean newSegment(){
         chunkIndex++;
-        output=new File(sessionDir,String.format(Locale.US,"part_%04d.m4a",chunkIndex));
+        String fileName=String.format(Locale.US,"part_%04d.m4a",chunkIndex);
+        output=new File(sessionDir,fileName);
+        pendingOutput=new File(sessionDir,fileName+".pending");
         try{
+            if(pendingOutput.exists()&&!pendingOutput.delete())
+                throw new IllegalStateException("Не освободить временный файл");
             recorder=new MediaRecorder();
             recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
             recorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
@@ -123,7 +142,7 @@ public final class MagirRecorderService extends Service {
             recorder.setAudioChannels(1);
             recorder.setAudioSamplingRate(44100);
             recorder.setAudioEncodingBitRate(64000);
-            recorder.setOutputFile(output.getAbsolutePath());
+            recorder.setOutputFile(pendingOutput.getAbsolutePath());
             recorder.prepare();
             recorder.start();
             prefs().edit().putInt("chunks_completed",chunkIndex-1).apply();
@@ -132,7 +151,8 @@ public final class MagirRecorderService extends Service {
             return true;
         }catch(Exception e){
             releaseRecorder();
-            if(output!=null)output.delete();
+            if(pendingOutput!=null&&pendingOutput.length()==0)pendingOutput.delete();
+            output=null;pendingOutput=null;
             return false;
         }
     }
@@ -146,15 +166,24 @@ public final class MagirRecorderService extends Service {
 
     private boolean finishSegment(){
         if(recorder==null)return false;
-        boolean ok=false;
-        try{recorder.stop();ok=true;}catch(RuntimeException ignored){}
+        boolean stopped=false;
+        try{recorder.stop();stopped=true;}catch(RuntimeException ignored){}
         releaseRecorder();
-        if(!ok&&output!=null)output.delete();
-        if(ok){
-            prefs().edit().putInt("chunks_completed",chunkIndex).apply();
+        boolean saved=false;
+        if(stopped&&pendingOutput!=null&&pendingOutput.isFile()&&pendingOutput.length()>0
+            &&output!=null&&!output.exists()){
+            saved=pendingOutput.renameTo(output);
         }
-        output=null;
-        return ok;
+        if(saved){
+            prefs().edit().putInt("chunks_completed",chunkIndex).apply();
+        }else{
+            if(pendingOutput!=null&&pendingOutput.isFile()&&pendingOutput.length()==0)
+                pendingOutput.delete();
+            prefs().edit().putString("last_error",
+                "Последний фрагмент не удалось завершить. Незавершённый файл сохранён отдельно.").apply();
+        }
+        output=null;pendingOutput=null;
+        return saved;
     }
 
     private void fail(String reason){
@@ -166,16 +195,26 @@ public final class MagirRecorderService extends Service {
     private void finishSession(){
         handler.removeCallbacks(rotate);
         if(!recording){
+            activeRecording=false;
             releaseRecorder();
             if(wake!=null&&wake.isHeld())wake.release();
+            wake=null;
+            prefs().edit().putBoolean("recording",false)
+                .putLong("stopped_at",System.currentTimeMillis()).apply();
             stopForeground(true);
             return;
         }
-        finishSegment();
+        boolean finalPartSaved=finishSegment();
         recording=false;
         activeRecording=false;
+        long stoppedAt=System.currentTimeMillis();
+        MagirSessions.markStopped(sessionDir,stoppedAt);
+        if(!finalPartSaved&&chunkIndex>0){
+            prefs().edit().putString("last_error",
+                "Запись остановлена. Последний фрагмент сохранён как незавершённый; предыдущие части целы.").apply();
+        }
         prefs().edit().putBoolean("recording",false)
-            .putLong("stopped_at",System.currentTimeMillis()).apply();
+            .putLong("stopped_at",stoppedAt).apply();
         if(wake!=null&&wake.isHeld())wake.release();
         wake=null;
         stopForeground(true);
