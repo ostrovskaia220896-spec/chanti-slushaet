@@ -21,5 +21,15 @@ final class TrackRules {
         }
         return "";
     }
+    // A missing sample must not become an unlimited playback estimate.
+    static final long MAX_SAMPLE_GAP_MS = 15000L;
+    static boolean observationFresh(long observedAt,long now) {
+        return observedAt>0 && now>=observedAt && now-observedAt<=MAX_SAMPLE_GAP_MS;
+    }
+    static long observedPlayingMs(long since,long observedAt,long now) {
+        if(since<=0 || observedAt<since || now<since)return 0L;
+        long end=observationFresh(observedAt,now)?now:Math.min(now,observedAt);
+        return Math.max(0L,end-since);
+    }
     private static String safe(String s) { return s == null ? "" : s.trim(); }
 }
