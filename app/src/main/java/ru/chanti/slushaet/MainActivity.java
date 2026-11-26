@@ -65,7 +65,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         if(pendingListen&&hasListener()){
             pendingListen=false;
-            TrackStore.start(this);MediaScan.read(this);
+            MediaScan.resetSources();TrackStore.start(this);MediaScan.read(this);
         }
         MediaScan.read(this);
         handler.removeCallbacks(refresh);handler.post(refresh);
@@ -164,7 +164,7 @@ public final class MainActivity extends Activity {
     private void toggleMusic(){
         if(TrackStore.active(this)){TrackStore.stop(this);update();return;}
         if(hasListener()){
-            TrackStore.start(this);MediaScan.read(this);update();return;
+            MediaScan.resetSources();TrackStore.start(this);MediaScan.read(this);update();return;
         }
         new AlertDialog.Builder(this)
             .setTitle("Разрешение Android")
