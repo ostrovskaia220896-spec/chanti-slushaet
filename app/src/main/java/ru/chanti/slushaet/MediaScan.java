@@ -134,12 +134,10 @@ final class MediaScan {
             if(t.isEmpty()){TrackStore.lost(ctx);return;}
             // With matching titles prefer real session artist; avoid importing generic
             // notification text when session metadata already provides it.
-            if(t.equals(mt)&&!ma.isEmpty())a=ma;
-            // A rating from the old track must never be assigned to a new notification track.
-            Rating rating=m!=null&&t.equals(mt)&&
-                (a.isEmpty()||ma.isEmpty()||a.equals(ma))?
+            if(t.equals(mt)&&!ma.isEmpty()&&(!useNotification||na.isEmpty()||ma.equals(na)))a=ma;
+            // Do not borrow ratings when the two sources disagree on track identity.
+            Rating rating=m!=null&&t.equals(mt)&&a.equals(ma)?
                 m.getRating(MediaMetadata.METADATA_KEY_USER_RATING):null;
-            if(useNotification&&!nt.equals(mt))rating=null;
             TrackStore.onMusic(ctx,t,a,state.getState()==PlaybackState.STATE_PLAYING,rating);
         }catch(SecurityException error){
             TrackStore.lost(ctx);
