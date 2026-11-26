@@ -178,14 +178,14 @@ public final class TrackStore {
                     eventId=MusicEventIds.newEventId();
                     event.put("eventId",eventId);
                 }
-                if(event.optString("requestId","").isEmpty())
+                String requestId=event.optString("requestId","");
+                if(!requestId.matches("q_[a-f0-9]{64}"))
                     event.put("requestId",MusicEventIds.requestId(eventId));
                 normalized.put(event);
             }
             if(!a.edit().putString("events",normalized.toString()).commit())
                 throw new IllegalStateException("Не удалось сохранить ID старых событий");
-            for(int i=0;i<normalized.length();i++)
-                MusicEventOutbox.enqueue(c,normalized.getJSONObject(i));
+            MusicEventOutbox.enqueueBatch(c,normalized);
             a.edit().putBoolean("outbox_migrated_v1",true)
                 .putInt("outbox_pending",MusicEventOutbox.pendingCount(c))
                 .remove("outbox_error").apply();
