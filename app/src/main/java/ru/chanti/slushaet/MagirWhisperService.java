@@ -26,6 +26,8 @@ public final class MagirWhisperService extends Service {
     static final String START="ru.chanti.slushaet.WHISPER_START";
     static final String STOP="ru.chanti.slushaet.WHISPER_STOP";
     static final String PREF="magir_whisper_status_v06";
+    static final String EXTRA_SESSION="session_name";
+    private String runningSession="";
     private static final int ID=108;
     private volatile boolean running=false;
     private Thread worker;
@@ -59,7 +61,8 @@ public final class MagirWhisperService extends Service {
             .build();
     }
     private void status(String text){
-        p().edit().putString("status",text).apply();
+        p().edit().putString("status",text)
+            .putString("status_for_"+runningSession,text).apply();
         NotificationManager n=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
         if(n!=null)n.notify(ID,notice(text));
     }
@@ -70,10 +73,9 @@ public final class MagirWhisperService extends Service {
             return START_NOT_STICKY;
         }
         if(i==null||!START.equals(i.getAction())||running)return START_NOT_STICKY;
-        String name=getSharedPreferences(MagirRecorderService.PREF,MODE_PRIVATE)
-            .getString("last_session","");
-        File session=new File(name);
-        if(name.isEmpty()||!session.isDirectory()){
+        String name=i.getStringExtra(EXTRA_SESSION);
+        File session=MagirSessions.find(this,name);
+        if(session==null){
             p().edit().putString("status","Нет сохранённой записи").apply();
             stopSelf();return START_NOT_STICKY;
         }
@@ -88,8 +90,10 @@ public final class MagirWhisperService extends Service {
                 wake.setReferenceCounted(false);
                 wake.acquire(6L*60*60*1000);
             }
+            runningSession=session.getName();
             running=true;
             p().edit().putBoolean("running",true)
+                .putString("active_session",runningSession)
                 .putString("status","Готовлю Whisper").apply();
             worker=new Thread(()->run(session),"Whisper-session");
             worker.start();
@@ -155,7 +159,7 @@ public final class MagirWhisperService extends Service {
         }finally{
             if(engine!=null)engine.close();
             running=false;
-            p().edit().putBoolean("running",false).apply();
+            p().edit().putBoolean("running",false).remove("active_session").apply();
             stopSelf();
         }
     }

@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <queries><package android:name="com.openai.chatgpt"/></queries>
     <application android:allowBackup="false"
-        android:label="Чанти слушает 0.7" android:icon="@drawable/ic_launcher"
+        android:label="Чанти слушает 0.8" android:icon="@drawable/ic_launcher"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true">

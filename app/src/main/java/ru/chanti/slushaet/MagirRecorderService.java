@@ -90,6 +90,7 @@ public final class MagirRecorderService extends Service {
             String stamp=new SimpleDateFormat("yyyyMMdd_HHmmss",Locale.US).format(new Date());
             sessionDir=new File(new File(root,"Magir"),"Magir_"+stamp);
             if(!sessionDir.exists()&&!sessionDir.mkdirs())throw new IllegalStateException("Папка не создана");
+            MagirSessions.setSelected(this,sessionDir);
             chunkIndex=0;
             PowerManager pm=(PowerManager)getSystemService(POWER_SERVICE);
             if(pm!=null){

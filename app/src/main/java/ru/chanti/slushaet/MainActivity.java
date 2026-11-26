@@ -40,11 +40,14 @@ public final class MainActivity extends Activity {
     private static final int BG=Color.rgb(18,17,28),CARD=Color.rgb(36,32,50);
     private static final int WHITE=Color.rgb(245,240,251),SUB=Color.rgb(193,183,209);
     private static final int ACCENT=Color.rgb(190,157,255);
-    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804;
+    private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804,
+        ZIP_IMPORT_REQUEST=1805,TXT_IMPORT_REQUEST=1806;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView musicTitle,musicArtist,musicStatus,listenerStatus,videoStatus;
-    private TextView magirState,asrState;
-    private Button listen,record,transcribe,zip,txt;
+    private TextView magirState,asrState,selectedState;
+    private Button listen,record,transcribe,zip,txt,chooser;
+    private File pendingExportSession;
+    private File pendingTextImportSession;
     private boolean pendingListen=false;
     private final Runnable refresh=new Runnable(){
         @Override public void run(){update();handler.postDelayed(this,1300);}
@@ -94,7 +97,7 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18),dp(24),dp(18),dp(35));
         sc.addView(root);setContentView(sc);
         getWindow().setStatusBarColor(BG);getWindow().setNavigationBarColor(BG);
-        root.addView(text("🎧 Чанти слушает 0.7",26,WHITE,true));
+        root.addView(text("🎧 Чанти слушает 0.8",26,WHITE,true));
         root.addView(text("Музыка — для этого чата. «Магир» — для другого.",15,SUB,false),space(8));
 
         LinearLayout music=card(root);
@@ -123,6 +126,12 @@ public final class MainActivity extends Activity {
         record=button("🎙 Начать запись «Магира»",true,v->toggleRecording());
         magir.addView(record,space(12));
         magirState=text("",13,SUB,false);magir.addView(magirState,space(8));
+        chooser=button("📂 Выбрать запись",false,v->chooseSession());
+        magir.addView(chooser,space(12));
+        selectedState=text("",13,ACCENT,false);magir.addView(selectedState,space(6));
+        magir.addView(button("⬇ Импортировать старый ZIP",false,v->pickSessionZip()),space(8));
+        magir.addView(button("📄 Добавить старую расшифровку TXT",false,
+            v->pickSessionTranscript()),space(8));
         transcribe=button("📝 Точная расшифровка Whisper (русский)",false,
             v->startTranscriptionWithConsent());
         magir.addView(transcribe,space(13));
@@ -187,19 +196,68 @@ public final class MainActivity extends Activity {
     private boolean recording(){
         return MagirRecorderService.isRecording();
     }
-    private File sessionDir(){
-        String path=recordPrefs().getString("last_session","");
-        if(path.isEmpty())return null;
-        File file=new File(path);
-        return file.isDirectory()?file:null;
+    private File sessionDir(){return MagirSessions.selected(this);}
+    private File[] parts(){return MagirSessions.audio(sessionDir());}
+    private void chooseSession(){
+        File[] all=MagirSessions.all(this);
+        if(all.length==0){
+            new AlertDialog.Builder(this).setTitle("Пока нет записей")
+                .setMessage("Запиши новую игру либо импортируй старый ZIP.")
+                .setPositiveButton("Хорошо",null).show();
+            return;
+        }
+        String[] labels=new String[all.length];
+        for(int j=0;j<all.length;j++)labels[j]=MagirSessions.label(all[j]);
+        new AlertDialog.Builder(this).setTitle("Выбери запись «Магира»")
+            .setItems(labels,(dialog,which)->{
+                MagirSessions.setSelected(this,all[which]);
+                update();
+            }).setNegativeButton("Отмена",null).show();
     }
-    private File[] parts(){
+    private void pickSessionZip(){
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("application/zip");
+        startActivityForResult(i,ZIP_IMPORT_REQUEST);
+    }
+    private void pickSessionTranscript(){
         File dir=sessionDir();
-        if(dir==null)return new File[0];
-        File[] files=dir.listFiles((p,name)->name.matches("part_\\d{4}\\.m4a"));
-        if(files==null)return new File[0];
-        Arrays.sort(files,Comparator.comparing(File::getName));
-        return files;
+        if(dir==null){Toast.makeText(this,"Сначала выбери запись",Toast.LENGTH_LONG).show();return;}
+        pendingTextImportSession=dir;
+        Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("text/plain");
+        startActivityForResult(i,TXT_IMPORT_REQUEST);
+    }
+    private void importZip(Uri uri){
+        selectedState.setText("Импортирую архив…");
+        new Thread(()->{
+            try{
+                File done=MagirSessions.importZip(this,uri,message->
+                    runOnUiThread(()->selectedState.setText(message)));
+                runOnUiThread(()->{
+                    Toast.makeText(this,"Готово! Восстановлено: "+MagirSessions.label(done),
+                        Toast.LENGTH_LONG).show();
+                    update();
+                });
+            }catch(Exception e){
+                runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Ошибка импорта ZIP")
+                    .setMessage(e.getMessage()).setPositiveButton("Понятно",null).show());
+            }
+        },"Magir-zip-import").start();
+    }
+    private void importTxt(Uri uri,File dir){
+        if(dir==null)return;
+        new Thread(()->{
+            try{
+                MagirSessions.importText(this,uri,dir);
+                runOnUiThread(()->{Toast.makeText(this,"Текст добавлен к выбранной записи",
+                    Toast.LENGTH_LONG).show();update();});
+            }catch(Exception e){
+                runOnUiThread(()->new AlertDialog.Builder(this).setTitle("Ошибка импорта TXT")
+                    .setMessage(e.getMessage()).setPositiveButton("Понятно",null).show());
+            }
+        },"Magir-text-import").start();
     }
 
     private void toggleRecording(){
@@ -236,8 +294,11 @@ public final class MainActivity extends Activity {
     }
 
     private void startTranscriptionWithConsent(){
-        if(recording()){
-            Toast.makeText(this,"Сначала останови запись",Toast.LENGTH_LONG).show();return;
+        File chosen=sessionDir();
+        if(recording() && chosen!=null && chosen.getAbsolutePath().equals(
+            recordPrefs().getString("last_session",""))){
+            Toast.makeText(this,"Эта сессия ещё записывается. Выбери другую или останови запись.",
+                Toast.LENGTH_LONG).show();return;
         }
         if(parts().length==0){
             Toast.makeText(this,"Нет сохранённых частей записи",Toast.LENGTH_LONG).show();return;
@@ -298,7 +359,10 @@ public final class MainActivity extends Activity {
 
     private void launchTranscriber(){
         try{
+            File chosen=sessionDir();
+            if(chosen==null)throw new IllegalStateException("Не выбрана запись");
             Intent i=new Intent(this,MagirWhisperService.class).setAction(MagirWhisperService.START);
+            i.putExtra(MagirWhisperService.EXTRA_SESSION,chosen.getName());
             if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
             handler.postDelayed(this::update,1000);
         }catch(Exception e){
@@ -307,12 +371,16 @@ public final class MainActivity extends Activity {
     }
 
     private void saveSessionArchive(){
-        if(recording()){
-            Toast.makeText(this,"Останови запись перед экспортом",Toast.LENGTH_LONG).show();return;
+        File chosen=sessionDir();
+        if(recording() && chosen!=null && chosen.getAbsolutePath().equals(
+            recordPrefs().getString("last_session",""))){
+            Toast.makeText(this,"Эта запись ещё идёт. Экспортируй её после остановки.",
+                Toast.LENGTH_LONG).show();return;
         }
         if(parts().length==0){
             Toast.makeText(this,"Нет записанных фрагментов",Toast.LENGTH_LONG).show();return;
         }
+        pendingExportSession=sessionDir();
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE).setType("application/zip")
             .putExtra(Intent.EXTRA_TITLE,sessionDir().getName()+".zip");
@@ -320,9 +388,10 @@ public final class MainActivity extends Activity {
     }
     private void saveTranscript(){
         File dir=sessionDir();
-        if(dir==null||!new File(dir,"transcript_whisper_ru.txt").isFile()){
+        if(MagirSessions.transcript(dir)==null){
             Toast.makeText(this,"Сначала запусти расшифровку",Toast.LENGTH_LONG).show();return;
         }
+        pendingExportSession=dir;
         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
             .addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain")
             .putExtra(Intent.EXTRA_TITLE,dir.getName()+"_transcript.txt");
@@ -332,12 +401,20 @@ public final class MainActivity extends Activity {
         super.onActivityResult(req,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
         if(req==MODEL_IMPORT_REQUEST){
-            importSelectedModel(data.getData());
-            return;
+            importSelectedModel(data.getData());return;
+        }
+        if(req==ZIP_IMPORT_REQUEST){
+            importZip(data.getData());return;
+        }
+        if(req==TXT_IMPORT_REQUEST){
+            File target=pendingTextImportSession;
+            pendingTextImportSession=null;
+            importTxt(data.getData(),target);return;
         }
         if(req!=ZIP_REQUEST&&req!=TEXT_REQUEST)return;
         Uri location=data.getData();
-        File dir=sessionDir();
+        File dir=pendingExportSession;
+        pendingExportSession=null;
         if(dir==null)return;
         boolean zipMode=req==ZIP_REQUEST;
         Toast.makeText(this,"Сохраняю файл…",Toast.LENGTH_SHORT).show();
@@ -345,11 +422,15 @@ public final class MainActivity extends Activity {
             try(OutputStream out=getContentResolver().openOutputStream(location)){
                 if(out==null)throw new IllegalStateException("Не открыть выбранный файл");
                 if(!zipMode){
-                    copy(new File(dir,"transcript_whisper_ru.txt"),out);
+                    File transcript=MagirSessions.transcript(dir);
+                    if(transcript==null)throw new IllegalStateException("TXT не найден");
+                    copy(transcript,out);
                 }else{
                     try(ZipOutputStream z=new ZipOutputStream(out)){
                         File[] all=dir.listFiles((p,name)->name.matches("part_\\d{4}\\.m4a")
-                                ||name.equals("transcript_whisper_ru.txt"));
+                                ||name.matches("part_\\d{4}\\.whisper\\.txt")
+                                ||name.equals("transcript_whisper_ru.txt")
+                                ||name.equals("transcript_imported_ru.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");
                         Arrays.sort(all,Comparator.comparing(File::getName));
                         for(File f:all){
@@ -397,14 +478,20 @@ public final class MainActivity extends Activity {
             "● Записываю · готовых фрагментов: "+finished+
              " · "+Math.max(0,(System.currentTimeMillis()-started)/60000)+" мин":
             !lastError.isEmpty()?lastError:
-            "Запись выключена · файлов: "+parts().length);
+            "Запись выключена · выбери нужную сессию ниже");
+        File selectedForStatus=sessionDir();
         String asrText=getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE)
-            .getString("status","Whisper Small ещё не загружена");
+            .getString(selectedForStatus==null?"status":
+                "status_for_"+selectedForStatus.getName(),"Ещё не расшифровывали эту запись");
         asrState.setText(asrText);
-        boolean has=parts().length>0;
-        transcribe.setEnabled(!r&&has);
-        zip.setEnabled(!r&&has);
         File dir=sessionDir();
-        txt.setEnabled(!r&&dir!=null&&new File(dir,"transcript_whisper_ru.txt").isFile());
+        boolean has=MagirSessions.audio(dir).length>0;
+        chooser.setText("📂 Выбрать запись ("+MagirSessions.all(this).length+")");
+        selectedState.setText(dir==null?"Записей пока нет":MagirSessions.label(dir));
+        boolean asrRunning=getSharedPreferences(MagirWhisperService.PREF,MODE_PRIVATE)
+            .getBoolean("running",false);
+        transcribe.setEnabled(has&&!asrRunning);
+        zip.setEnabled(has);
+        txt.setEnabled(MagirSessions.transcript(dir)!=null);
     }
 }
