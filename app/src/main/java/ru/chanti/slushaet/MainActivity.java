@@ -67,6 +67,7 @@ public final class MainActivity extends Activity {
             pendingListen=false;
             TrackStore.start(this);MediaScan.read(this);
         }
+        MediaScan.read(this);
         handler.removeCallbacks(refresh);handler.post(refresh);
     }
     @Override protected void onPause(){
@@ -482,8 +483,10 @@ public final class MainActivity extends Activity {
             "Для автоматического режима нужно однократное разрешение Android");
         musicTitle.setText(song.title.isEmpty()?(song.active?"Жду музыку…":"Сейчас не слушаем"):song.title);
         musicArtist.setText(song.artist);
-        String playbackStatus=song.active?(song.playing?
-            "● Сейчас играет · "+Math.round(song.heardMs/1000.0)+" с":"○ На паузе или жду плеер"):
+        String playbackStatus=song.active?(!song.fresh?
+            "⚠ Нет свежих данных плеера · последнее название не подтверждено":
+            song.playing?"● Сейчас играет · "+Math.round(song.heardMs/1000.0)+" с":
+            "○ На паузе или жду плеер"):
             "Музыкальная сессия выключена";
         String outboxError=TrackStore.outboxError(this);
         String queueStatus=outboxError.isEmpty()?
