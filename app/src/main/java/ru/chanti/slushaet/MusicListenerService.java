@@ -69,6 +69,12 @@ public final class MusicListenerService extends NotificationListenerService {
     }
     private void refresh(){
         if(!connected)return;
+        try{
+            MediaScan.updateNotifications(getActiveNotifications());
+        }catch(RuntimeException error){
+            MediaScan.clearNotifications();
+            android.util.Log.w("MusicListener","Cannot read active media notifications",error);
+        }
         if(manager!=null){
             try{
                 List<MediaController> current=manager.getActiveSessions(component());
@@ -115,6 +121,7 @@ public final class MusicListenerService extends NotificationListenerService {
             try{c.unregisterCallback(onPlayback);}catch(RuntimeException ignored){}
         }
         observed.clear();
+        MediaScan.clearNotifications();
         TrackStore.lost(this);
         super.onDestroy();
     }
@@ -128,6 +135,7 @@ public final class MusicListenerService extends NotificationListenerService {
             try{c.unregisterCallback(onPlayback);}catch(RuntimeException ignored){}
         }
         observed.clear();
+        MediaScan.clearNotifications();
         TrackStore.lost(this);
         super.onListenerDisconnected();
     }
