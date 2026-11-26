@@ -26,4 +26,18 @@ public final class TrackRulesTest {
         assertEquals("", TrackRules.switchNote(31000, true));
         assertEquals("", TrackRules.switchNote(2000, false));
     }
+    @Test public void freshMediaSampleAllowsTimerToAdvance() {
+        assertTrue(TrackRules.observationFresh(5000,9000));
+        assertEquals(8000L,TrackRules.observedPlayingMs(1000,5000,9000));
+    }
+    @Test public void staleSampleDoesNotAttributeTwentyMinutesToOldSong() {
+        assertFalse(TrackRules.observationFresh(5000,1445000));
+        assertEquals(4000L,TrackRules.observedPlayingMs(1000,5000,1445000));
+    }
+    @Test public void missingOrInvalidSampleDoesNotInventDuration() {
+        assertFalse(TrackRules.observationFresh(0,5000));
+        assertFalse(TrackRules.observationFresh(6000,5000));
+        assertEquals(0L,TrackRules.observedPlayingMs(1000,0,5000));
+        assertEquals(0L,TrackRules.observedPlayingMs(6000,7000,5000));
+    }
 }
