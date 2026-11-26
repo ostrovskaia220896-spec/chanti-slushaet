@@ -33,36 +33,47 @@ public final class TrackStore {
         if(a.getBoolean("playing",false)&&since>0)result+=Math.max(0,System.currentTimeMillis()-since);
         return result;
     }
-    private static void add(SharedPreferences a,String kind,long ms,String note){
+    private static void add(Context context,SharedPreferences a,String kind,long ms,String note){
         try{
             JSONObject e=new JSONObject();
+            e.put("eventId",MusicEventIds.newEventId());
+            e.put("requestId",MusicEventIds.requestId(e.getString("eventId")));
             e.put("kind",kind);e.put("at",System.currentTimeMillis());
             e.put("title",a.getString("title",""));e.put("artist",a.getString("artist",""));
             e.put("ms",ms);e.put("note",note);
+            try{
+                MusicEventOutbox.enqueue(context,e);
+                a.edit().remove("outbox_error").apply();
+            }catch(RuntimeException storageError){
+                a.edit().putString("outbox_error",storageError.getClass().getSimpleName()).apply();
+                android.util.Log.e("TrackStore","Could not persist music outbox event",storageError);
+            }
             JSONArray old=new JSONArray(a.getString("events","[]")),next=new JSONArray();
             next.put(e);
             for(int i=0;i<old.length()&&i<499;i++)next.put(old.get(i));
             a.edit().putString("events",next.toString()).apply();
-        }catch(Exception ignored){}
+        }catch(Exception error){
+            android.util.Log.e("TrackStore","Could not record music event",error);
+        }
     }
     static synchronized void start(Context c){
         SharedPreferences a=p(c);if(a.getBoolean("active",false))return;
         a.edit().putBoolean("active",true).putString("title","").putString("artist","")
             .putLong("heard",0).putLong("since",0).putBoolean("playing",false)
             .putString("rating","").apply();
-        add(a,"session_start",0,"");
+        add(c,a,"session_start",0,"");
     }
-    private static void endSong(SharedPreferences a,boolean changed){
+    private static void endSong(Context c,SharedPreferences a,boolean changed){
         if(a.getString("title","").isEmpty())return;
         long ms=heard(a);
-        add(a,changed?"track_change":"track_end",ms,
+        add(c,a,changed?"track_change":"track_end",ms,
             TrackRules.switchNote(ms, changed));
     }
     static synchronized void stop(Context c){
         SharedPreferences a=p(c);if(!a.getBoolean("active",false))return;
-        endSong(a,false);
+        endSong(c,a,false);
         a.edit().putBoolean("active",false).putBoolean("playing",false).putLong("since",0).apply();
-        add(a,"session_stop",0,"");
+        add(c,a,"session_stop",0,"");
     }
     static synchronized void onMusic(Context c,String title,String artist,boolean playing,Rating rating){
         SharedPreferences a=p(c);
@@ -71,16 +82,16 @@ public final class TrackStore {
         boolean different=TrackRules.changed(
             a.getString("title",""), a.getString("artist",""), title, artist);
         if(different){
-            endSong(a,true);
+            endSong(c,a,true);
             a.edit().putString("title",title).putString("artist",artist)
                 .putLong("heard",0).putLong("since",playing?System.currentTimeMillis():0)
                 .putBoolean("playing",playing).putString("rating","").apply();
-            add(a,"track_start",0,playing?"играет":"пауза");
+            add(c,a,"track_start",0,playing?"играет":"пауза");
         }else if(a.getBoolean("playing",false)!=playing){
             long ms=heard(a);
             a.edit().putLong("heard",ms).putLong("since",playing?System.currentTimeMillis():0)
                 .putBoolean("playing",playing).apply();
-            add(a,playing?"resume":"pause",ms,"");
+            add(c,a,playing?"resume":"pause",ms,"");
         }
         if(rating!=null&&rating.isRated()){
             String state="";
@@ -89,7 +100,7 @@ public final class TrackStore {
             if(!state.isEmpty()&&!state.equals(a.getString("rating",""))){
                 String previous = a.getString("rating","");
                 a.edit().putString("rating",state).apply();
-                add(a,"rating",heard(a),TrackRules.ratingNote(previous,state));
+                add(c,a,"rating",heard(a),TrackRules.ratingNote(previous,state));
             }
         }
     }
@@ -98,7 +109,7 @@ public final class TrackStore {
         if(!a.getBoolean("active",false)||!a.getBoolean("playing",false))return;
         long ms=heard(a);
         a.edit().putBoolean("playing",false).putLong("heard",ms).putLong("since",0).apply();
-        add(a,"pause",ms,"медиасессия стала недоступна");
+        add(c,a,"pause",ms,"медиасессия стала недоступна");
     }
     static synchronized String report(Context c){
         JSONArray ev;
