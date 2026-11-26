@@ -30,6 +30,7 @@ public final class MusicListenerService extends NotificationListenerService {
 
     @Override public void onListenerConnected(){
         super.onListenerConnected();
+        TrackStore.recoverOutbox(this);
         connected=true;
         manager=(MediaSessionManager)getSystemService(MEDIA_SESSION_SERVICE);
         if(manager!=null){
