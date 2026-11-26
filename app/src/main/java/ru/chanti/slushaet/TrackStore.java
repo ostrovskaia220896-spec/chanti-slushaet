@@ -34,6 +34,7 @@ public final class TrackStore {
         return result;
     }
     private static void add(Context context,SharedPreferences a,String kind,long ms,String note){
+        ensureOutboxMigration(context);
         try{
             JSONObject e=new JSONObject();
             e.put("eventId",MusicEventIds.newEventId());
@@ -43,7 +44,8 @@ public final class TrackStore {
             e.put("ms",ms);e.put("note",note);
             try{
                 MusicEventOutbox.enqueue(context,e);
-                a.edit().remove("outbox_error").apply();
+                a.edit().putInt("outbox_pending",MusicEventOutbox.pendingCount(context))
+                    .remove("outbox_error").apply();
             }catch(RuntimeException storageError){
                 a.edit().putString("outbox_error",storageError.getClass().getSimpleName()).apply();
                 android.util.Log.e("TrackStore","Could not persist music outbox event",storageError);
@@ -146,6 +148,51 @@ public final class TrackStore {
             s.append("\n");
         }
         return s.toString();
+    }
+    static synchronized int outboxPending(Context c){
+        return p(c).getInt("outbox_pending",0);
+    }
+    static synchronized String outboxError(Context c){
+        return p(c).getString("outbox_error","");
+    }
+    /**
+     * One-time migration of the last locally displayed events into the durable outbox.
+     * IDs are written to SharedPreferences before SQLite insertion so a retry is idempotent.
+     */
+    private static synchronized void ensureOutboxMigration(Context c){
+        SharedPreferences a=p(c);
+        if(a.getBoolean("outbox_migrated_v1",false))return;
+        JSONArray old;
+        try{old=new JSONArray(a.getString("events","[]"));}
+        catch(Exception malformed){
+            a.edit().putString("outbox_error","Не удалось прочитать старый журнал").apply();
+            return;
+        }
+        JSONArray normalized=new JSONArray();
+        try{
+            for(int i=0;i<old.length();i++){
+                JSONObject event=old.optJSONObject(i);
+                if(event==null)continue;
+                String eventId=event.optString("eventId","");
+                if(eventId.isEmpty()){
+                    eventId=MusicEventIds.newEventId();
+                    event.put("eventId",eventId);
+                }
+                if(event.optString("requestId","").isEmpty())
+                    event.put("requestId",MusicEventIds.requestId(eventId));
+                normalized.put(event);
+            }
+            a.edit().putString("events",normalized.toString()).commit();
+            for(int i=0;i<normalized.length();i++)
+                MusicEventOutbox.enqueue(c,normalized.getJSONObject(i));
+            a.edit().putBoolean("outbox_migrated_v1",true)
+                .putInt("outbox_pending",MusicEventOutbox.pendingCount(c))
+                .remove("outbox_error").apply();
+        }catch(Exception error){
+            a.edit().putString("outbox_error","Миграция журнала: "+
+                error.getClass().getSimpleName()).apply();
+            android.util.Log.e("TrackStore","Could not migrate old music events",error);
+        }
     }
     static synchronized void clear(Context c){p(c).edit().remove("events").apply();}
 }
