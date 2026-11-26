@@ -26,7 +26,7 @@ final class MediaScan {
     static void read(Context ctx){
         if(!TrackStore.active(ctx))return;
         MediaSessionManager manager=(MediaSessionManager)ctx.getSystemService(Context.MEDIA_SESSION_SERVICE);
-        if(manager==null)return;
+        if(manager==null){TrackStore.lost(ctx);return;}
         try{
             List<MediaController> all=manager.getActiveSessions(
                 new ComponentName(ctx,MusicListenerService.class));
@@ -46,6 +46,7 @@ final class MediaScan {
             }
             if(music==null){TrackStore.lost(ctx);return;}
             MediaMetadata m=music.getMetadata();
+            if(m==null||title(m).isEmpty()){TrackStore.lost(ctx);return;}
             String artist=m.getString(MediaMetadata.METADATA_KEY_ARTIST);
             if(artist==null||artist.trim().isEmpty())
                 artist=m.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE);
@@ -53,8 +54,12 @@ final class MediaScan {
             Rating rating=m.getRating(MediaMetadata.METADATA_KEY_USER_RATING);
             TrackStore.onMusic(ctx,title(m),artist,
                 state!=null&&state.getState()==PlaybackState.STATE_PLAYING,rating);
-        }catch(SecurityException ignored){
-            // Android requires opt-in notification listener access to read media sessions.
-        }catch(RuntimeException ignored){}
+        }catch(SecurityException error){
+            TrackStore.lost(ctx);
+            android.util.Log.w("MediaScan","Notification listener access unavailable",error);
+        }catch(RuntimeException error){
+            TrackStore.lost(ctx);
+            android.util.Log.w("MediaScan","Media metadata unavailable",error);
+        }
     }
 }
