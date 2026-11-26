@@ -113,8 +113,8 @@ public final class MainActivity extends Activity {
         musicArtist=text("",16,WHITE,false);music.addView(musicArtist,space(4));
         musicStatus=text("",13,SUB,false);music.addView(musicStatus,space(7));
         music.addView(button("📋 Скопировать журнал для нашего чата",false,v->copyDiary()),space(12));
-        music.addView(text("Без автоматической публикации в ChatGPT: приложение не может само " +
-            "писать в конкретный существующий мобильный чат.",12,SUB,false),space(9));
+        music.addView(text("События сохраняются в локальной очереди на телефоне. " +
+            "Прямая доставка в существующий чат ещё подключается.",12,SUB,false),space(9));
 
         LinearLayout video=card(root);
         video.addView(text("📺 ВИДЕО · проверка медиаданных",18,WHITE,true));
@@ -481,9 +481,14 @@ public final class MainActivity extends Activity {
             "Для автоматического режима нужно однократное разрешение Android");
         musicTitle.setText(song.title.isEmpty()?(song.active?"Жду музыку…":"Сейчас не слушаем"):song.title);
         musicArtist.setText(song.artist);
-        musicStatus.setText(song.active?(song.playing?
+        String playbackStatus=song.active?(song.playing?
             "● Сейчас играет · "+Math.round(song.heardMs/1000.0)+" с":"○ На паузе или жду плеер"):
-            "Музыкальная сессия выключена");
+            "Музыкальная сессия выключена";
+        String outboxError=TrackStore.outboxError(this);
+        String queueStatus=outboxError.isEmpty()?
+            "Локальная очередь: "+TrackStore.outboxPending(this)+" событий":
+            "Локальная очередь: ошибка сохранения ("+outboxError+")";
+        musicStatus.setText(playbackStatus+"\n"+queueStatus);
         videoStatus.setText(VideoStore.current(this));
 
         boolean r=recording();
