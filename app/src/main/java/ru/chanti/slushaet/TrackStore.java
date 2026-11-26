@@ -47,7 +47,8 @@ public final class TrackStore {
                 a.edit().putInt("outbox_pending",MusicEventOutbox.pendingCount(context))
                     .remove("outbox_error").apply();
             }catch(RuntimeException storageError){
-                a.edit().putString("outbox_error",storageError.getClass().getSimpleName()).apply();
+                a.edit().putBoolean("outbox_migrated_v1",false)
+                    .putString("outbox_error",storageError.getClass().getSimpleName()).apply();
                 android.util.Log.e("TrackStore","Could not persist music outbox event",storageError);
             }
             JSONArray old=new JSONArray(a.getString("events","[]")),next=new JSONArray();
@@ -148,6 +149,9 @@ public final class TrackStore {
             s.append("\n");
         }
         return s.toString();
+    }
+    static synchronized void recoverOutbox(Context c){
+        ensureOutboxMigration(c);
     }
     static synchronized int outboxPending(Context c){
         return p(c).getInt("outbox_pending",0);
