@@ -18,6 +18,21 @@ public final class MusicListenerService extends NotificationListenerService {
     private final List<MediaController> observed=new ArrayList<>();
     private MediaSessionManager manager;
     private boolean connected=false;
+    // Media callbacks can disappear while a player is still running.
+    // Poll as a fallback while Android permits this listener to run.
+    private final Runnable watchdog=new Runnable(){
+        @Override public void run(){
+            if(!connected)return;
+            try{
+                if(TrackStore.active(MusicListenerService.this))refresh();
+            }catch(RuntimeException error){
+                android.util.Log.w("MusicListener","Media refresh failed",error);
+                TrackStore.lost(MusicListenerService.this);
+            }finally{
+                if(connected)handler.postDelayed(this,5000);
+            }
+        }
+    };
 
     private final MediaController.Callback onPlayback=new MediaController.Callback(){
         @Override public void onMetadataChanged(MediaMetadata metadata){MediaScan.read(MusicListenerService.this);}
@@ -38,6 +53,8 @@ public final class MusicListenerService extends NotificationListenerService {
             catch(SecurityException ignored){}
         }
         refresh();
+        handler.removeCallbacks(watchdog);
+        handler.postDelayed(watchdog,5000);
     }
     @Override public void onNotificationPosted(StatusBarNotification item){
         if(item!=null&&MediaScan.supported(item.getPackageName())){
@@ -52,23 +69,58 @@ public final class MusicListenerService extends NotificationListenerService {
     }
     private void refresh(){
         if(!connected)return;
+        if(manager!=null){
+            try{
+                List<MediaController> current=manager.getActiveSessions(component());
+                // Retain callbacks for live tokens instead of unregistering on each scan.
+                for(int i=observed.size()-1;i>=0;i--){
+                    MediaController old=observed.get(i);
+                    boolean found=false;
+                    for(MediaController c:current){
+                        if(old.getSessionToken().equals(c.getSessionToken())){
+                            found=true;break;
+                        }
+                    }
+                    if(!found){
+                        try{old.unregisterCallback(onPlayback);}catch(RuntimeException ignored){}
+                        observed.remove(i);
+                    }
+                }
+                for(MediaController c:current){
+                    if(!MediaScan.supported(c.getPackageName()))continue;
+                    boolean found=false;
+                    for(MediaController old:observed){
+                        if(old.getSessionToken().equals(c.getSessionToken())){
+                            found=true;break;
+                        }
+                    }
+                    if(!found){
+                        c.registerCallback(onPlayback,handler);
+                        observed.add(c);
+                    }
+                }
+            }catch(RuntimeException error){
+                android.util.Log.w("MusicListener","Media session refresh failed",error);
+            }
+        }
+        MediaScan.read(this);
+    }
+    @Override public void onDestroy(){
+        handler.removeCallbacks(watchdog);
+        connected=false;
+        if(manager!=null){
+            try{manager.removeOnActiveSessionsChangedListener(onSessions);}catch(RuntimeException ignored){}
+        }
         for(MediaController c:observed){
             try{c.unregisterCallback(onPlayback);}catch(RuntimeException ignored){}
         }
         observed.clear();
-        if(manager!=null){
-            try{
-                for(MediaController c:manager.getActiveSessions(component())){
-                    if(!MediaScan.supported(c.getPackageName()))continue;
-                    observed.add(c);
-                    c.registerCallback(onPlayback,handler);
-                }
-            }catch(SecurityException ignored){}
-        }
-        MediaScan.read(this);
+        TrackStore.lost(this);
+        super.onDestroy();
     }
     @Override public void onListenerDisconnected(){
         connected=false;
+        handler.removeCallbacks(watchdog);
         if(manager!=null){
             try{manager.removeOnActiveSessionsChangedListener(onSessions);}catch(RuntimeException ignored){}
         }
