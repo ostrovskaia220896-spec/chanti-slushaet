@@ -69,6 +69,37 @@ final class MusicEventOutbox extends SQLiteOpenHelper {
         }
     }
 
+    static int enqueueBatch(Context context, JSONArray events) {
+        if (events == null || events.length() == 0) return 0;
+        MusicEventOutbox helper = new MusicEventOutbox(context);
+        SQLiteDatabase db = null;
+        int inserted = 0;
+        try {
+            db = helper.getWritableDatabase();
+            db.beginTransaction();
+            for (int i = 0; i < events.length(); i++) {
+                JSONObject event = events.optJSONObject(i);
+                if (event == null) continue;
+                String eventId = event.optString("eventId", "");
+                String requestId = event.optString("requestId", "");
+                if (eventId.isEmpty() || requestId.isEmpty()) continue;
+                ContentValues values = new ContentValues();
+                values.put("event_id", eventId);
+                values.put("request_id", requestId);
+                values.put("payload", event.toString());
+                values.put("created_at", event.optLong("at", System.currentTimeMillis()));
+                long row = db.insertWithOnConflict(
+                    TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE);
+                if (row != -1) inserted++;
+            }
+            db.setTransactionSuccessful();
+            return inserted;
+        } finally {
+            if (db != null && db.inTransaction()) db.endTransaction();
+            helper.close();
+        }
+    }
+
     static int pendingCount(Context context) {
         MusicEventOutbox helper = new MusicEventOutbox(context);
         Cursor cursor = null;
