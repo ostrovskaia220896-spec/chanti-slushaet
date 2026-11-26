@@ -182,7 +182,8 @@ public final class TrackStore {
                     event.put("requestId",MusicEventIds.requestId(eventId));
                 normalized.put(event);
             }
-            a.edit().putString("events",normalized.toString()).commit();
+            if(!a.edit().putString("events",normalized.toString()).commit())
+                throw new IllegalStateException("Не удалось сохранить ID старых событий");
             for(int i=0;i<normalized.length();i++)
                 MusicEventOutbox.enqueue(c,normalized.getJSONObject(i));
             a.edit().putBoolean("outbox_migrated_v1",true)
