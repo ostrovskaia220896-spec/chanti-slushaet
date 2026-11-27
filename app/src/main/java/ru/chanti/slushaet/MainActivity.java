@@ -41,11 +41,11 @@ public final class MainActivity extends Activity {
     private static final int WHITE=Color.rgb(245,240,251),SUB=Color.rgb(193,183,209);
     private static final int ACCENT=Color.rgb(190,157,255);
     private static final int MIC_REQUEST=1801,ZIP_REQUEST=1802,TEXT_REQUEST=1803,MODEL_IMPORT_REQUEST=1804,
-        ZIP_IMPORT_REQUEST=1805,TXT_IMPORT_REQUEST=1806;
+        ZIP_IMPORT_REQUEST=1805,TXT_IMPORT_REQUEST=1806,DIARIZED_TEXT_REQUEST=1807;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private TextView musicTitle,musicArtist,musicStatus,listenerStatus,videoStatus;
-    private TextView magirState,asrState,selectedState;
-    private Button listen,record,transcribe,zip,txt,chooser;
+    private TextView magirState,asrState,selectedState,diarizationState;
+    private Button listen,record,transcribe,diarize,zip,txt,speakerTxt,chooser;
     private File pendingExportSession;
     private File pendingTextImportSession;
     private boolean pendingListen=false;
@@ -59,6 +59,7 @@ public final class MainActivity extends Activity {
         MagirSessions.recover(this);
         MagirRecorderService.reconcile(this);
         MagirWhisperService.reconcile(this);
+        MagirDiarizationService.reconcile(this);
         draw();
     }
     @Override protected void onResume(){
@@ -143,8 +144,13 @@ public final class MainActivity extends Activity {
         magir.addView(button("⚙ Не удалось скачать модель? Исправить",false,
             v->showModelRecovery()),space(8));
         asrState=text("",13,SUB,false);magir.addView(asrState,space(7));
+        diarize=button("👥 Различить голоса",false,v->startDiarizationWithConsent());
+        magir.addView(diarize,space(12));
+        diarizationState=text("",13,SUB,false);magir.addView(diarizationState,space(7));
         txt=button("📄 Сохранить расшифровку TXT",false,v->saveTranscript());
         magir.addView(txt,space(13));
+        speakerTxt=button("👥 Сохранить расшифровку с голосами",false,v->saveDiarizedTranscript());
+        magir.addView(speakerTxt,space(8));
         zip=button("🗂 Сохранить аудио + текст ZIP",false,v->saveSessionArchive());
         magir.addView(zip,space(8));
         magir.addView(text("В другой чат «Магира» можно загрузить TXT или ZIP после экспорта. " +
@@ -308,8 +314,8 @@ public final class MainActivity extends Activity {
         if(parts().length==0){
             Toast.makeText(this,"Нет завершённых фрагментов записи",Toast.LENGTH_LONG).show();return;
         }
-        if(MagirSessions.fullyTranscribed(chosen)){
-            Toast.makeText(this,"Эта запись уже полностью расшифрована",Toast.LENGTH_LONG).show();return;
+        if(MagirSessions.fullyTranscribed(chosen)&&MagirSessions.fullyTimed(chosen)){
+            Toast.makeText(this,"Эта запись уже полностью расшифрована и размечена по времени",Toast.LENGTH_LONG).show();return;
         }
         if(MagirWhisperService.isQueuedOrRunning(this,chosen.getName())){
             Toast.makeText(this,"Эта запись уже в очереди или обрабатывается",Toast.LENGTH_LONG).show();return;
@@ -323,6 +329,69 @@ public final class MainActivity extends Activity {
             .setPositiveButton("Скачать и расшифровать",(d,w)->launchTranscriber())
             .setNegativeButton("Отмена",null).show();
     }
+    private void startDiarizationWithConsent(){
+        File chosen=sessionDir();
+        if(chosen==null||MagirSessions.audio(chosen).length==0){
+            Toast.makeText(this,"Сначала выбери запись «Магира»",Toast.LENGTH_LONG).show();return;
+        }
+        if(recording()&&chosen.getAbsolutePath().equals(recordPrefs().getString("last_session",""))){
+            Toast.makeText(this,"Сначала останови запись",Toast.LENGTH_LONG).show();return;
+        }
+        if(!MagirSessions.fullyTranscribed(chosen)){
+            new AlertDialog.Builder(this).setTitle("Сначала нужна расшифровка")
+                .setMessage("Сначала полностью расшифруй эту запись Whisper. Затем можно будет разметить голоса.")
+                .setPositiveButton("Запустить Whisper",(d,w)->startTranscriptionWithConsent())
+                .setNegativeButton("Отмена",null).show();
+            return;
+        }
+        if(!MagirSessions.fullyTimed(chosen)){
+            new AlertDialog.Builder(this).setTitle("Нужны временные отметки")
+                .setMessage("Эта запись была расшифрована старой версией без точных границ реплик. " +
+                    "Я создам недостающие временные отметки повторным проходом Whisper, не заменяя уже сохранённый текст.")
+                .setPositiveButton("Подготовить отметки",(d,w)->startTranscriptionWithConsent())
+                .setNegativeButton("Отмена",null).show();
+            return;
+        }
+        if(MagirDiarizationService.isBusy(this)){
+            Toast.makeText(this,"Уже идёт разделение голосов в другой записи",Toast.LENGTH_LONG).show();return;
+        }
+        if(SpeakerModelInstaller.INSTANCE.installed(this)){
+            launchDiarization();return;
+        }
+        new AlertDialog.Builder(this).setTitle("Скачать модели для голосов")
+            .setMessage("Нужно один раз скачать две модели общим размером около 31 МиБ. " +
+                "После этого разделение выполняется полностью на телефоне: аудиозаписи никуда не отправляются. " +
+                "Голосовые признаки существуют только в памяти во время обработки и не сохраняются между играми. " +
+                "Количество участников заранее задавать не нужно; спорные реплики будут отмечены как неопределённые.")
+            .setPositiveButton("Скачать и различить",(d,w)->launchDiarization())
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void launchDiarization(){
+        try{
+            File chosen=sessionDir();
+            if(chosen==null)throw new IllegalStateException("Не выбрана запись");
+            Intent i=new Intent(this,MagirDiarizationService.class).setAction(MagirDiarizationService.START);
+            i.putExtra(MagirDiarizationService.EXTRA_SESSION,chosen.getName());
+            if(Build.VERSION.SDK_INT>=26)startForegroundService(i);else startService(i);
+            handler.postDelayed(this::update,1000);
+        }catch(Exception error){
+            Toast.makeText(this,"Не удалось запустить разделение голосов: "+error.getMessage(),
+                Toast.LENGTH_LONG).show();
+        }
+    }
+    private void saveDiarizedTranscript(){
+        File dir=sessionDir();
+        File transcript=dir==null?null:new File(dir,"transcript_diarized_ru.txt");
+        if(transcript==null||!transcript.isFile()||transcript.length()==0){
+            Toast.makeText(this,"Сначала выполни разделение голосов",Toast.LENGTH_LONG).show();return;
+        }
+        pendingExportSession=dir;
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT)
+            .addCategory(Intent.CATEGORY_OPENABLE).setType("text/plain")
+            .putExtra(Intent.EXTRA_TITLE,dir.getName()+"_transcript_speakers.txt");
+        startActivityForResult(i,DIARIZED_TEXT_REQUEST);
+    }
+
     private void showModelRecovery(){
         new AlertDialog.Builder(this)
             .setTitle("Не удалось скачать Whisper?")
@@ -412,7 +481,7 @@ public final class MainActivity extends Activity {
         super.onActivityResult(req,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null){
             if(req==ZIP_REQUEST)pendingExportSession=null;
-            if(req==TEXT_REQUEST)pendingExportSession=null;
+            if(req==TEXT_REQUEST||req==DIARIZED_TEXT_REQUEST)pendingExportSession=null;
             if(req==TXT_IMPORT_REQUEST)pendingTextImportSession=null;
             return;
         }
@@ -427,19 +496,21 @@ public final class MainActivity extends Activity {
             pendingTextImportSession=null;
             importTxt(data.getData(),target);return;
         }
-        if(req!=ZIP_REQUEST&&req!=TEXT_REQUEST)return;
+        if(req!=ZIP_REQUEST&&req!=TEXT_REQUEST&&req!=DIARIZED_TEXT_REQUEST)return;
         Uri location=data.getData();
         File dir=pendingExportSession;
         pendingExportSession=null;
         if(dir==null)return;
         boolean zipMode=req==ZIP_REQUEST;
+        boolean diarizedMode=req==DIARIZED_TEXT_REQUEST;
         Toast.makeText(this,"Сохраняю файл…",Toast.LENGTH_SHORT).show();
         new Thread(()->{
             try(OutputStream out=getContentResolver().openOutputStream(location)){
                 if(out==null)throw new IllegalStateException("Не открыть выбранный файл");
                 if(!zipMode){
-                    File transcript=MagirSessions.transcript(dir);
-                    if(transcript==null)throw new IllegalStateException("TXT не найден");
+                    File transcript=diarizedMode?new File(dir,"transcript_diarized_ru.txt"):
+                        MagirSessions.transcript(dir);
+                    if(transcript==null||!transcript.isFile())throw new IllegalStateException("TXT не найден");
                     copy(transcript,out);
                 }else{
                     try(ZipOutputStream z=new ZipOutputStream(out)){
@@ -480,6 +551,7 @@ public final class MainActivity extends Activity {
         if(listen==null)return;
         MagirRecorderService.reconcile(this);
         MagirWhisperService.reconcile(this);
+        MagirDiarizationService.reconcile(this);
         TrackStore.Snapshot song=TrackStore.snapshot(this);
         listen.setText(song.active?"■ Завершить прослушивание":"▶ Чанти, слушаем!");
         listenerStatus.setText(hasListener()?"✓ Доступ к медиасессиям включён":
@@ -521,12 +593,23 @@ public final class MainActivity extends Activity {
             recordPrefs().getString("last_session",""));
         boolean queued=dir!=null&&MagirWhisperService.isQueuedOrRunning(this,dir.getName());
         boolean done=MagirSessions.fullyTranscribed(dir);
+        boolean timed=MagirSessions.fullyTimed(dir);
         boolean busy=MagirWhisperService.isBusy(this);
         transcribe.setText(queued?"✓ В очереди / обрабатывается":
             currentRecording?"⏸ Сначала заверши эту запись":
-            done?"✓ Все фрагменты расшифрованы":
+            done&&timed?"✓ Все фрагменты расшифрованы":
+            done?"🕒 Подготовить временные отметки Whisper":
             busy?"＋ Добавить в очередь":"📝 Точная расшифровка Whisper (русский)");
-        transcribe.setEnabled(has&&!done&&!queued&&!currentRecording);
+        transcribe.setEnabled(has&&(!done||!timed)&&!queued&&!currentRecording);
+        boolean diarBusy=MagirDiarizationService.isBusy(this);
+        String diarStatus=getSharedPreferences(MagirDiarizationService.PREF,MODE_PRIVATE)
+            .getString(dir==null?"status":"status_for_"+dir.getName(),"Голоса ещё не определялись");
+        diarizationState.setText(diarStatus);
+        File diarized=dir==null?null:new File(dir,"transcript_diarized_ru.txt");
+        diarize.setText(diarBusy?"⏳ Различаю голоса…":
+            diarized!=null&&diarized.isFile()?"↻ Повторить разделение голосов":"👥 Различить голоса");
+        diarize.setEnabled(has&&done&&timed&&!currentRecording&&!diarBusy);
+        speakerTxt.setEnabled(diarized!=null&&diarized.isFile()&&diarized.length()>0);
         zip.setEnabled((has||MagirSessions.pendingAudioCount(dir)>0)&&!currentRecording);
         txt.setEnabled(MagirSessions.transcript(dir)!=null);
     }
