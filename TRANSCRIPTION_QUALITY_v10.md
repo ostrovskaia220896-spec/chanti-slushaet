@@ -41,3 +41,10 @@
 - Added `MagirSpeakerDiarizationPipeline`: reads one converted 16 kHz mono WAV part at a time, runs Sherpa offline diarization, extracts clean embeddings for each local cluster, and resolves them through one session-scoped matcher retained across parts.
 - This is the intended memory-bounded route for long sessions. Local speaker numbers are never copied directly into the final transcript; they are reconciled against voice embeddings. A short or ambiguous cluster remains `unknown`.
 - The pipeline core is compiled and unit-tested indirectly by the Android build; actual inference, CPU/memory usage, Russian identity accuracy, and threshold calibration still require real-device recordings.
+
+## Speaker-labelled output format
+
+- Each audio part gets a separate `part_NNNN.speakers.json` sidecar containing local intervals and session-wide speaker IDs.
+- `transcript_diarized_ru.txt` is a separate derived file. It aligns the original Whisper segment text with the speaker intervals; it never edits or replaces the original Whisper TXT.
+- Overlapping or ambiguous speech is labelled `Несколько голосов`; insufficient evidence is labelled `Голос не определён`.
+- ZIP import/export accepts the new sidecars and derived transcript.

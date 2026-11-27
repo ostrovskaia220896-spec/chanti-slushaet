@@ -29,6 +29,12 @@ public final class MagirFileRulesTest {
         assertFalse(MagirFileRules.isSafeImportEntry("../part_0001.whisper.json"));
         assertEquals("part_0007.whisper.json",MagirFileRules.segmentsForAudio("part_0007.m4a"));
     }
+    @Test public void recognizesSpeakerSidecarsAndFinalTranscript(){
+        assertTrue(MagirFileRules.isSafeImportEntry("part_0003.speakers.json"));
+        assertFalse(MagirFileRules.isSafeImportEntry("part_0003.speakers.json.tmp"));
+        assertTrue(MagirFileRules.isSafeImportEntry("transcript_diarized_ru.txt"));
+        assertEquals("part_0003.speakers.json",MagirFileRules.speakerTurnsForAudio("part_0003.m4a"));
+    }
     @Test public void mapsAudioToItsOwnCheckpoint(){
         assertEquals("part_0007.whisper.txt",MagirFileRules.transcriptForAudio("part_0007.m4a"));
     }

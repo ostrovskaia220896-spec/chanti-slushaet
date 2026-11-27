@@ -447,6 +447,8 @@ public final class MainActivity extends Activity {
                                 ||MagirFileRules.isPendingAudio(name)
                                 ||MagirFileRules.isPartTranscript(name)
                                 ||MagirFileRules.isTimedSegments(name)
+                                ||MagirFileRules.isSpeakerTurns(name)
+                                ||MagirFileRules.isDiarizedTranscript(name)
                                 ||name.equals("transcript_whisper_ru.txt")
                                 ||name.equals("transcript_imported_ru.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");
