@@ -129,12 +129,12 @@ public final class MagirDiarizationService extends Service {
         File[] temporary=new File[parts.length];
         File[] finalFiles=new File[parts.length];
         try{
-            long lastProgress=0;
+            final long[] lastProgress={0L};
             SpeakerModelInstaller.Models models=SpeakerModelInstaller.INSTANCE.install(
                 this,(model,downloaded,total)->{
                     long now=System.currentTimeMillis();
-                    if(now-lastProgress>1200||downloaded==total){
-                        lastProgress=now;
+                    if(now-lastProgress[0]>1200||downloaded==total){
+                        lastProgress[0]=now;
                         status("Скачиваю модели голосов: "+(downloaded/1024/1024)+
                             " из "+(total/1024/1024)+" МиБ");
                     }
