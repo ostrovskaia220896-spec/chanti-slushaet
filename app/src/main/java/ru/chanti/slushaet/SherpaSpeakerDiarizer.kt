@@ -83,10 +83,13 @@ class SherpaSpeakerDiarizer(
         onProgress: ((processedChunks: Int, totalChunks: Int) -> Unit)? = null
     ): List<DetectedSpeakerTurn> {
         require(samples.isNotEmpty()) { "Audio is empty" }
-        val segments = diarizer.processWithCallback(samples) { processed, total, _ ->
-            onProgress?.invoke(processed, total)
-            0
-        }
+        val segments = diarizer.processWithCallback(
+            samples,
+            { processed: Int, total: Int, ignored: Long ->
+                onProgress?.invoke(processed, total)
+                0
+            }
+        )
         return segments
             .filter { it.start >= 0f && it.end > it.start && it.speaker >= 0 }
             .map {
