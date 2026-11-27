@@ -17,3 +17,13 @@
 6. Проверки: реальные игровые фрагменты с разным числом участников, быстрые диалоги, перебивания, повтор одного голоса между частями, тихая речь. Сравнить качество распознавания, ошибки атрибуции, время, память, нагрев, энергопотребление и восстановление на Xiaomi 14T. Не объявлять диаризацию готовой до проверки.
 
 Статус: фундамент временных меток и правила сопоставления, не готовый движок диаризации; Android-сборка и испытания на телефоне еще не подтверждены.
+
+## Sherpa-ONNX Android integration checkpoint
+
+- CI has verified the previous timestamp/alignment groundwork: run 45959542032 completed successfully.
+- Pinned official Android AAR: sherpa-onnx v2.0.3, SHA-256 `4c766e2e74c9d33d595338c21fe3b305c73ba45d47e96a235675c33142a2ec50`. The AAR is fetched at build time; it is not committed into the repository.
+- `SherpaSpeakerDiarizer` wraps the official offline speaker diarization API, uses automatic cluster count (`numClusters=-1`), CPU execution, confidence output and sorted millisecond intervals.
+- The wrapper deliberately requires a whole-session 16 kHz mono FloatArray. Running it separately on each five-minute part would restart speaker IDs and is not considered a correct session-level solution. Memory-bounded cross-part reconciliation remains to be designed and tested before wiring it into the recording workflow.
+- Model candidates: pyannote segmentation 3.0 (MIT, converted ONNX model; original Hugging Face model is gated for direct download but sherpa distributes converted files) and speaker embedding models. Candidate English VoxCeleb CAM++ ONNX is 29.6 MB, SHA-256 `98daf9bcf1c8abf3db374fec4c27a5eda7c58705bb3f180d057b085a72a88bb5`, Apache-2.0 at 3D-Speaker project. Russian-language performance is not established; compare with the 3D-Speaker ERes2Net model and validate on Russian recordings.
+- Official Android API references: https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/index.html and https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.3/android/SherpaOnnxSpeakerDiarization
+- Model selection, license checks, model download/install, memory-bounded session-wide speaker clustering, and Xiaomi 14T device tests are still pending. This wrapper is not yet called by the user-facing transcription flow.

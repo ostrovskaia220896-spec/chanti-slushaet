@@ -51,5 +51,7 @@ dependencies {
     testImplementation 'junit:junit:4.13.2'
     implementation 'com.alphacephei:vosk-android:0.3.47'
     implementation 'dev.ffmpegkit-maintained:whisper-android:1.0.0'
+    // Official sherpa-onnx Android AAR, fetched and SHA-256 pinned in CI/local setup script.
+    implementation files('libs/sherpa-onnx-2.0.3.aar')
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
 }

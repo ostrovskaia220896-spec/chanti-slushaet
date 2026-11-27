@@ -34,6 +34,13 @@ jobs:
           test -x "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses > /dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - name: Fetch pinned sherpa-onnx Android AAR (arm64 app)
+        run: |
+          mkdir -p app/libs
+          curl --fail --location --retry 3 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.3/sherpa-onnx-2.0.3.aar \
+            --output app/libs/sherpa-onnx-2.0.3.aar
+          echo "4c766e2e74c9d33d595338c21fe3b305c73ba45d47e96a235675c33142a2ec50  app/libs/sherpa-onnx-2.0.3.aar" | sha256sum --check
       - name: Unit tests and debug APK
         run: gradle --no-daemon testDebugUnitTest assembleDebug
       - name: Prepare stable release signing key
