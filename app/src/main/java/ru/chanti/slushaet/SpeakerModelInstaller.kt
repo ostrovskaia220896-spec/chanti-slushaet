@@ -32,6 +32,13 @@ object SpeakerModelInstaller {
 
     data class Models(val segmentation: File, val embedding: File)
 
+    fun installed(context: Context): Boolean {
+        val directory = File(context.filesDir, "speaker_models/sherpa-2.0.3")
+        return Model.values().all { model ->
+            File(directory, model.fileName).let { it.isFile && it.length() == model.expectedBytes }
+        }
+    }
+
     fun install(
         context: Context,
         onProgress: ((model: Model, downloaded: Long, total: Long) -> Unit)? = null

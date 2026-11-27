@@ -150,7 +150,7 @@ public final class MagirWhisperService extends Service {
             if(!running)stopSelf(startId);
             return START_NOT_STICKY;
         }
-        if(MagirSessions.fullyTranscribed(session)){
+        if(MagirSessions.fullyTranscribed(session)&&MagirSessions.fullyTimed(session)){
             setSessionStatus(name,"Готово — все аудиофрагменты уже расшифрованы.");
             if(!running)stopSelf(startId);
             return START_NOT_STICKY;
@@ -178,7 +178,7 @@ public final class MagirWhisperService extends Service {
         while(!queue.isEmpty()){
             String name=MagirQueueRules.first(queue);
             File session=MagirSessions.find(this,name);
-            if(session==null||MagirSessions.fullyTranscribed(session)||
+            if(session==null||(MagirSessions.fullyTranscribed(session)&&MagirSessions.fullyTimed(session))||
                 MagirSessions.audio(session).length==0){
                 queue=MagirQueueRules.withoutFirst(queue);
                 writeQueue(queue);
@@ -253,7 +253,9 @@ public final class MagirWhisperService extends Service {
                 File timedTemp=new File(dir,timed.getName()+".tmp");
                 double length=MagirSpeechDecoder.duration(part);
                 if(length<=0)throw new IllegalStateException("Не читается "+part.getName());
-                if(!complete.exists()||complete.length()==0){
+                boolean textMissing=!complete.exists()||complete.length()==0;
+                boolean timedMissing=!timed.exists()||timed.length()==0;
+                if(textMissing||timedMissing){
                     String label="Whisper: часть "+(i+1)+" из "+parts.length;
                     beginPart(label);
                     File wav=null;
@@ -268,7 +270,8 @@ public final class MagirWhisperService extends Service {
                         if(!timedTemp.isFile()||timedTemp.length()==0)
                             throw new IllegalStateException("Не сохранены временные границы реплик");
                         MagirSessions.replaceFile(timedTemp,timed);
-                        MagirSessions.replaceFile(temp,complete);
+                        if(textMissing)MagirSessions.replaceFile(temp,complete);
+                        else if(temp.exists())temp.delete();
                         endPart();
                         rebuild(dir,parts,new File(dir,"transcript_whisper_ru.txt"));
                         status("Сохранено: часть "+(i+1)+" из "+parts.length);

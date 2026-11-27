@@ -30,6 +30,8 @@
             android:exported="false" android:foregroundServiceType="microphone"/>
         <service android:name=".MagirWhisperService"
             android:exported="false" android:foregroundServiceType="dataSync"/>
+        <service android:name=".MagirDiarizationService"
+            android:exported="false" android:foregroundServiceType="dataSync"/>
         <service android:name=".MagirTranscribeService"
             android:exported="false" android:foregroundServiceType="dataSync"/>
     </application>

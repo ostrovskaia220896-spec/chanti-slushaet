@@ -170,8 +170,17 @@ final class MagirSessions {
         File[] files=audio(dir);
         if(files.length==0)return false;
         for(File part:files){
-            File text=new File(dir,part.getName().replace(".m4a",".whisper.txt"));
+            File text=new File(dir,MagirFileRules.transcriptForAudio(part.getName()));
             if(!text.isFile()||text.length()==0)return false;
+        }
+        return true;
+    }
+    static boolean fullyTimed(File dir){
+        File[] files=audio(dir);
+        if(files.length==0)return false;
+        for(File part:files){
+            File timed=new File(dir,MagirFileRules.segmentsForAudio(part.getName()));
+            if(!timed.isFile()||timed.length()==0)return false;
         }
         return true;
     }
