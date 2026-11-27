@@ -138,6 +138,7 @@ public final class MagirDiarizationService extends Service {
                         status("Скачиваю модели голосов: "+(downloaded/1024/1024)+
                             " из "+(total/1024/1024)+" МиБ");
                     }
+                    return kotlin.Unit.INSTANCE;
                 });
             try(MagirSpeakerDiarizationPipeline pipeline=
                     new MagirSpeakerDiarizationPipeline(models.getSegmentation(),
