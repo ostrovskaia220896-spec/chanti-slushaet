@@ -66,8 +66,9 @@ public final class MainActivity extends Activity {
         super.onResume();
         if(pendingListen&&hasListener()){
             pendingListen=false;
-            MediaScan.resetSources();TrackStore.start(this);MediaScan.read(this);
+            startMusic();
         }
+        if(TrackStore.active(this)&&hasListener())MusicMonitorService.ensure(this);
         MediaScan.read(this);
         handler.removeCallbacks(refresh);handler.post(refresh);
     }
@@ -167,10 +168,14 @@ public final class MainActivity extends Activity {
         return n!=null&&n.isNotificationListenerAccessGranted(
             new ComponentName(this,MusicListenerService.class));
     }
+    private void startMusic(){
+        MediaScan.resetSources();TrackStore.start(this);
+        MusicMonitorService.ensure(this);MediaScan.read(this);
+    }
     private void toggleMusic(){
-        if(TrackStore.active(this)){TrackStore.stop(this);update();return;}
+        if(TrackStore.active(this)){TrackStore.stop(this);stopService(new Intent(this,MusicMonitorService.class));update();return;}
         if(hasListener()){
-            MediaScan.resetSources();TrackStore.start(this);MediaScan.read(this);update();return;
+            startMusic();update();return;
         }
         new AlertDialog.Builder(this)
             .setTitle("Разрешение Android")

@@ -18,6 +18,12 @@ public final class MusicListenerService extends NotificationListenerService {
     private final List<MediaController> observed=new ArrayList<>();
     private MediaSessionManager manager;
     private boolean connected=false;
+    private static volatile MusicListenerService live;
+    static boolean pollConnected(){
+        MusicListenerService s=live;
+        if(s==null||!s.connected)return false;
+        s.refresh();return true;
+    }
     // Media callbacks can disappear while a player is still running.
     // Poll as a fallback while Android permits this listener to run.
     private final Runnable watchdog=new Runnable(){
@@ -47,6 +53,7 @@ public final class MusicListenerService extends NotificationListenerService {
         super.onListenerConnected();
         TrackStore.recoverOutbox(this);
         connected=true;
+        live=this;
         manager=(MediaSessionManager)getSystemService(MEDIA_SESSION_SERVICE);
         if(manager!=null){
             try{manager.addOnActiveSessionsChangedListener(onSessions,component());}
@@ -114,6 +121,7 @@ public final class MusicListenerService extends NotificationListenerService {
     @Override public void onDestroy(){
         handler.removeCallbacks(watchdog);
         connected=false;
+        if(live==this)live=null;
         if(manager!=null){
             try{manager.removeOnActiveSessionsChangedListener(onSessions);}catch(RuntimeException ignored){}
         }
@@ -127,6 +135,7 @@ public final class MusicListenerService extends NotificationListenerService {
     }
     @Override public void onListenerDisconnected(){
         connected=false;
+        if(live==this)live=null;
         handler.removeCallbacks(watchdog);
         if(manager!=null){
             try{manager.removeOnActiveSessionsChangedListener(onSessions);}catch(RuntimeException ignored){}
@@ -138,5 +147,7 @@ public final class MusicListenerService extends NotificationListenerService {
         MediaScan.clearNotifications();
         TrackStore.lost(this);
         super.onListenerDisconnected();
+        if(TrackStore.active(this))try{requestRebind(component());}
+        catch(RuntimeException e){android.util.Log.w("MusicListener","Rebind request failed",e);}
     }
 }

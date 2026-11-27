@@ -68,14 +68,16 @@ public final class TrackStore {
         SharedPreferences a=p(c);if(a.getBoolean("active",false))return;
         a.edit().putBoolean("active",true).putString("title","").putString("artist","")
             .putLong("heard",0).putLong("since",0).putBoolean("playing",false)
-            .putString("rating","").remove("observed_at").apply();
+            .putString("rating","").putBoolean("source_gap",false).putBoolean("source_visible",false).remove("observed_at").apply();
         add(c,a,"session_start",0,"");
     }
     private static void endSong(Context c,SharedPreferences a,boolean changed){
         if(a.getString("title","").isEmpty())return;
         long ms=heard(a);
         add(c,a,changed?"track_change":"track_end",ms,
-            TrackRules.switchNote(ms, changed));
+            a.getBoolean("source_gap",false)?
+                "зафиксировано только "+Math.round(ms/1000.0)+" с; были пропуски наблюдения":
+                TrackRules.switchNote(ms, changed));
     }
     static synchronized void stop(Context c){
         SharedPreferences a=p(c);if(!a.getBoolean("active",false))return;
@@ -93,22 +95,32 @@ public final class TrackStore {
         if(a.getBoolean("playing",false)&&!TrackRules.observationFresh(a.getLong("observed_at",0),now)){
             lost(c);
         }
+        boolean gap=a.getBoolean("source_gap",false);
         boolean different=TrackRules.changed(
             a.getString("title",""), a.getString("artist",""), title, artist);
         if(different){
             endSong(c,a,true);
             a.edit().putString("title",title).putString("artist",artist)
-                .putLong("heard",0).putLong("since",playing?System.currentTimeMillis():0)
-                .putBoolean("playing",playing).putString("rating","").putLong("observed_at",now).apply();
+                .putLong("heard",0).putLong("since",playing?now:0)
+                .putBoolean("playing",playing).putString("rating","").putBoolean("source_gap",false)
+                .putLong("observed_at",now).apply();
             add(c,a,"track_start",0,playing?"играет":"пауза");
+        }else if(gap&&!a.getBoolean("source_visible",false)){
+            long ms=heard(a);
+            a.edit().putLong("heard",ms).putLong("since",playing?now:0)
+                .putBoolean("playing",playing).putLong("observed_at",now).apply();
+            // Keep the gap marker for the final duration; record restored visibility only once.
+            if(!a.getBoolean("source_visible",false))
+                add(c,a,"source_restored",ms,"данные плеера снова доступны; пропущенное время неизвестно");
         }else if(a.getBoolean("playing",false)!=playing){
             long ms=heard(a);
-            a.edit().putLong("heard",ms).putLong("since",playing?System.currentTimeMillis():0)
+            a.edit().putLong("heard",ms).putLong("since",playing?now:0)
                 .putBoolean("playing",playing).putLong("observed_at",now).apply();
             add(c,a,playing?"resume":"pause",ms,"");
         }else{
             a.edit().putLong("observed_at",now).apply();
         }
+        a.edit().putBoolean("source_visible",true).apply();
         if(rating!=null&&rating.isRated()){
             String state="";
             if(rating.getRatingStyle()==Rating.RATING_HEART)state=rating.hasHeart()?"liked":"unliked";
@@ -123,13 +135,14 @@ public final class TrackStore {
     static synchronized void lost(Context c){
         SharedPreferences a=p(c);
         if(!a.getBoolean("active",false))return;
-        if(!a.getBoolean("playing",false)){
+        if(a.getString("title","").isEmpty()||!a.getBoolean("source_visible",false)){
             a.edit().remove("observed_at").apply();return;
         }
         long ms=heard(a);
         a.edit().putBoolean("playing",false).putLong("heard",ms).putLong("since",0)
+            .putBoolean("source_gap",true).putBoolean("source_visible",false)
             .remove("observed_at").apply();
-        add(c,a,"pause",ms,"медиасессия стала недоступна; время после потери связи не подтверждено");
+        add(c,a,"source_lost",ms,"нет данных плеера; это не пауза, дальнейшее прослушивание неизвестно");
     }
     static synchronized String report(Context c){
         JSONArray ev;
@@ -148,6 +161,8 @@ public final class TrackStore {
                 case "track_end":label="■";break;
                 case "pause":label="⏸";break;
                 case "resume":label="▷";break;
+                case "source_lost":label="⚠ ПОТЕРЯ СВЯЗИ";break;
+                case "source_restored":label="✓ СВЯЗЬ ВОССТАНОВЛЕНА";break;
                 case "rating":
                     String note=e.optString("note");
                     label=note.contains("лайк снят")||note.contains("без лайка")||
