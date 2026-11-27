@@ -446,6 +446,7 @@ public final class MainActivity extends Activity {
                         File[] all=dir.listFiles((p,name)->MagirFileRules.isCompleteAudio(name)
                                 ||MagirFileRules.isPendingAudio(name)
                                 ||MagirFileRules.isPartTranscript(name)
+                                ||MagirFileRules.isTimedSegments(name)
                                 ||name.equals("transcript_whisper_ru.txt")
                                 ||name.equals("transcript_imported_ru.txt"));
                         if(all==null||all.length==0)throw new IllegalStateException("Нет файлов");

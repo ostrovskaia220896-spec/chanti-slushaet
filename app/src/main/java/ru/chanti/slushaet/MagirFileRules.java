@@ -12,8 +12,15 @@ final class MagirFileRules {
     static boolean isPartTranscript(String name){
         return name!=null&&name.matches("part_\\d{4}\\.whisper\\.txt");
     }
+    static boolean isTimedSegments(String name){
+        return name!=null&&name.matches("part_\\d{4}\\.whisper\\.json");
+    }
+    static String segmentsForAudio(String name){
+        if(!isCompleteAudio(name))throw new IllegalArgumentException("Not a completed Magir audio part");
+        return name.substring(0,name.length()-4)+".whisper.json";
+    }
     static boolean isSafeImportEntry(String name){
-        return isCompleteAudio(name)||isPendingAudio(name)||isPartTranscript(name)
+        return isCompleteAudio(name)||isPendingAudio(name)||isPartTranscript(name)||isTimedSegments(name)
             ||"transcript_whisper_ru.txt".equals(name)
             ||"transcript_imported_ru.txt".equals(name);
     }

@@ -249,6 +249,8 @@ public final class MagirWhisperService extends Service {
                 File part=parts[i];
                 File complete=new File(dir,MagirFileRules.transcriptForAudio(part.getName()));
                 File temp=new File(dir,part.getName().replace(".m4a",".whisper.tmp"));
+                File timed=new File(dir,MagirFileRules.segmentsForAudio(part.getName()));
+                File timedTemp=new File(dir,timed.getName()+".tmp");
                 double length=MagirSpeechDecoder.duration(part);
                 if(length<=0)throw new IllegalStateException("Не читается "+part.getName());
                 if(!complete.exists()||complete.length()==0){
@@ -258,11 +260,14 @@ public final class MagirWhisperService extends Service {
                     try{
                         if(temp.exists())temp.delete();
                         wav=MagirWavConverter.convert(part,getCacheDir());
-                        engine.transcribe(wav,temp,offset);
+                        engine.transcribe(wav,temp,timedTemp,offset);
                         if(!temp.exists())throw new IllegalStateException("Не создан черновик");
                         if(temp.length()==0){
                             try(FileWriter f=new FileWriter(temp,true)){f.write("\n");}
                         }
+                        if(!timedTemp.isFile()||timedTemp.length()==0)
+                            throw new IllegalStateException("Не сохранены временные границы реплик");
+                        MagirSessions.replaceFile(timedTemp,timed);
                         MagirSessions.replaceFile(temp,complete);
                         endPart();
                         rebuild(dir,parts,new File(dir,"transcript_whisper_ru.txt"));
@@ -271,6 +276,7 @@ public final class MagirWhisperService extends Service {
                         endPart();
                         if(wav!=null)wav.delete();
                         if(temp.exists())temp.delete();
+                        if(timedTemp.exists())timedTemp.delete();
                     }
                 }else{
                     status("Проверяю сохранённые части: "+(i+1)+" из "+parts.length);
