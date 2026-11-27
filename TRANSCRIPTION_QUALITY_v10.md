@@ -27,3 +27,11 @@
 - Model candidates: pyannote segmentation 3.0 (MIT, converted ONNX model; original Hugging Face model is gated for direct download but sherpa distributes converted files) and speaker embedding models. Candidate English VoxCeleb CAM++ ONNX is 29.6 MB, SHA-256 `98daf9bcf1c8abf3db374fec4c27a5eda7c58705bb3f180d057b085a72a88bb5`, Apache-2.0 at 3D-Speaker project. Russian-language performance is not established; compare with the 3D-Speaker ERes2Net model and validate on Russian recordings.
 - Official Android API references: https://k2-fsa.github.io/sherpa/onnx/speaker-diarization/index.html and https://github.com/k2-fsa/sherpa-onnx/tree/v2.0.3/android/SherpaOnnxSpeakerDiarization
 - Official AAR wrapper and pinned model downloader are now implemented in source; CI must confirm compilation. Model download/install has SHA-256 and byte-count verification. The selected CAM++ model is trained on English VoxCeleb; Russian performance is unverified. Memory-bounded session-wide clustering and Xiaomi 14T device tests are still pending. This wrapper is not yet called by the user-facing transcription flow.
+
+## Cross-fragment speaker identity prototype
+
+- Sherpa Android AAR v2.0.3 includes `SpeakerEmbeddingExtractor`, `OnlineStream`, and `SpeakerEmbeddingManager` JNI support, not only offline diarization.
+- Added `SherpaSpeakerEmbeddingEngine`: extracts embeddings from clean, sufficiently long, non-overlapping speech turns for each local cluster.
+- Added session-scoped `SpeakerIdentityMatcher`: maps local Sherpa cluster IDs to stable session IDs across five-minute parts using normalized speaker embeddings; no fixed speaker count. Empty or ambiguous evidence is left unresolved rather than guessed.
+- Matching threshold 0.5 and ambiguity margin 0.06 are provisional engineering defaults, not validated Russian thresholds. They must be calibrated against real Russian recordings. Voice embeddings exist only in memory for a processing pass; no cross-session voice profile database is created.
+- The actual diarization service and UI are not wired yet. Need a per-part pipeline: WAV -> local diarization -> clean embeddings -> session matcher -> diarized sidecar; then align Whisper intervals and build a separate speaker-labelled transcript.
