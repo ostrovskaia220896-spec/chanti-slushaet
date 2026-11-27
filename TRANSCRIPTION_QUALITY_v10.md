@@ -34,7 +34,7 @@
 - Added `SherpaSpeakerEmbeddingEngine`: extracts embeddings from clean, sufficiently long, non-overlapping speech turns for each local cluster.
 - Added session-scoped `SpeakerIdentityMatcher`: maps local Sherpa cluster IDs to stable session IDs across five-minute parts using normalized speaker embeddings; no fixed speaker count. Empty or ambiguous evidence is left unresolved rather than guessed.
 - Matching threshold 0.5 and ambiguity margin 0.06 are provisional engineering defaults, not validated Russian thresholds. They must be calibrated against real Russian recordings. Voice embeddings exist only in memory for a processing pass; no cross-session voice profile database is created.
-- The actual diarization service and UI are not wired yet. Need a per-part pipeline: WAV -> local diarization -> clean embeddings -> session matcher -> diarized sidecar; then align Whisper intervals and build a separate speaker-labelled transcript.
+- Added a separate foreground `MagirDiarizationService` and UI controls. The user explicitly consents to download the ~31 MiB models; audio is not uploaded. The service processes one five-minute WAV part at a time, keeps one in-memory identity matcher across the complete session, writes per-part speaker sidecars, aligns them with Whisper timestamps, and exports a separate `transcript_diarized_ru.txt`. ZIP import/export includes the derived data. Voice embeddings are not persisted across games.
 
 ## Per-part pipeline
 
@@ -48,3 +48,9 @@
 - `transcript_diarized_ru.txt` is a separate derived file. It aligns the original Whisper segment text with the speaker intervals; it never edits or replaces the original Whisper TXT.
 - Overlapping or ambiguous speech is labelled `Несколько голосов`; insufficient evidence is labelled `Голос не определён`.
 - ZIP import/export accepts the new sidecars and derived transcript.
+
+## Latest integration build
+
+- Android CI run 45961972912 for commit `a79b27a9139cd246464c04afe02d5e5c1af441da` completed successfully: AAR download SHA check, Kotlin/Java compile, unit tests, debug APK assembly, and artifact upload.
+- Debug APK artifact: `Chanti-Slushaet-1.0.0-rc1-debug-test` (technical test build only; not a signed production release).
+- Remaining release blockers: run actual inference on Xiaomi 14T, measure diarization accuracy on Russian game audio, tune segmentation/identity thresholds, manually review voice clusters and overlapping speech, and test battery/thermal/memory behavior. Do not describe speaker identification as production-validated yet.
