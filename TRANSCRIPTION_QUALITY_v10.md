@@ -35,3 +35,9 @@
 - Added session-scoped `SpeakerIdentityMatcher`: maps local Sherpa cluster IDs to stable session IDs across five-minute parts using normalized speaker embeddings; no fixed speaker count. Empty or ambiguous evidence is left unresolved rather than guessed.
 - Matching threshold 0.5 and ambiguity margin 0.06 are provisional engineering defaults, not validated Russian thresholds. They must be calibrated against real Russian recordings. Voice embeddings exist only in memory for a processing pass; no cross-session voice profile database is created.
 - The actual diarization service and UI are not wired yet. Need a per-part pipeline: WAV -> local diarization -> clean embeddings -> session matcher -> diarized sidecar; then align Whisper intervals and build a separate speaker-labelled transcript.
+
+## Per-part pipeline
+
+- Added `MagirSpeakerDiarizationPipeline`: reads one converted 16 kHz mono WAV part at a time, runs Sherpa offline diarization, extracts clean embeddings for each local cluster, and resolves them through one session-scoped matcher retained across parts.
+- This is the intended memory-bounded route for long sessions. Local speaker numbers are never copied directly into the final transcript; they are reconciled against voice embeddings. A short or ambiguous cluster remains `unknown`.
+- The pipeline core is compiled and unit-tested indirectly by the Android build; actual inference, CPU/memory usage, Russian identity accuracy, and threshold calibration still require real-device recordings.

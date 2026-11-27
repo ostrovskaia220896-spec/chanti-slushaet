@@ -71,7 +71,13 @@ class SpeakerIdentityMatcher(
         val dimension = vectors.first().size
         if (dimension == 0 || vectors.any { it.size != dimension }) return null
         val mean = FloatArray(dimension)
-        for (vector in vectors) for (i in 0 until dimension) mean[i] += vector[i]
+        var accepted = 0
+        for (vector in vectors) {
+            val unit = normalize(vector) ?: continue
+            for (i in 0 until dimension) mean[i] += unit[i]
+            accepted++
+        }
+        if (accepted == 0) return null
         return normalize(mean)
     }
 
