@@ -99,20 +99,29 @@ final class MediaScan {
                     continue;
                 }
                 if(!yandex(pkg))continue;
-                long score=ps==null?0:Math.max(0L,ps.getLastPositionUpdateTime());
-                if(playing)score+=1L<<50;
-                if(!title(m).isEmpty())score+=1L<<49;
-                if(hint!=null&&hint.token!=null&&hint.token.equals(c.getSessionToken()))
-                    score+=1L<<52;
+                // Restore the older selector's primary rule: a real playing session
+                // outranks a paused notification token. Invalid sessions are not candidates.
+                if(ps==null||ps.getState()==PlaybackState.STATE_NONE||
+                    ps.getState()==PlaybackState.STATE_ERROR)continue;
+                String mt=title(m);
+                boolean hasTitle=!generic(mt);
+                boolean notificationTitle=hint!=null&&hint.token!=null&&
+                    hint.token.equals(c.getSessionToken())&&!generic(hint.title);
+                if(!hasTitle&&!notificationTitle)continue;
+                long score=Math.max(0L,ps.getLastPositionUpdateTime());
+                if(playing)score+=1L<<52;
+                if(hasTitle)score+=1L<<50;
+                if(notificationTitle)score+=1L<<49;
                 if(music==null||score>bestScore){music=c;bestScore=score;}
             }
             // A media notification can point at a controller absent from the active list.
-            if(hint!=null&&hint.token!=null&&(music==null||
-                    !hint.token.equals(music.getSessionToken()))){
+            if(hint!=null&&hint.token!=null&&music==null){
                 try{
                     MediaController candidate=new MediaController(ctx,hint.token);
-                    if(yandex(candidate.getPackageName())&&
-                        candidate.getPackageName().equals(hint.pkg))music=candidate;
+                    PlaybackState candidateState=candidate.getPlaybackState();
+                    if(yandex(candidate.getPackageName())&&candidate.getPackageName().equals(hint.pkg)
+                        &&candidateState!=null&&candidateState.getState()!=PlaybackState.STATE_NONE
+                        &&candidateState.getState()!=PlaybackState.STATE_ERROR)music=candidate;
                 }catch(RuntimeException ignored){}
             }
             if(music==null){TrackStore.lost(ctx);return;}
