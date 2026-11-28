@@ -19,7 +19,7 @@ import android.service.notification.NotificationListenerService;
 /** User-started ongoing diary. Keeps a visible service independently of listener binding.
  * Does not play or record audio, open another app, or acquire a continuous wake lock. */
 public final class MusicMonitorService extends Service {
-    private static final int ID=109;
+    private static final int ID=110;
     private static final String CHANNEL="music_diary_monitor", STOP="ru.chanti.slushaet.MUSIC_MONITOR_STOP";
     private static volatile boolean running;
     private final Handler handler=new Handler(Looper.getMainLooper());

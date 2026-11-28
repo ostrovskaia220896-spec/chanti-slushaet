@@ -29,13 +29,18 @@ class MagirSpeakerDiarizationPipeline(
 
     val speakerCount: Int get() = identities.speakerCount
 
-    fun processPart(wavFile: File): List<DetectedSpeakerTurn> {
+    @JvmOverloads
+    fun processPart(wavFile: File, onStage: ((String) -> Unit)? = null): List<DetectedSpeakerTurn> {
         require(wavFile.isFile && wavFile.length() > 44L) { "Part WAV is missing or empty" }
+        onStage?.invoke("чтение WAV")
         val wave = WaveReader.readWave(wavFile.absolutePath)
         require(wave.sampleRate == 16000) { "Expected 16 kHz mono WAV" }
         val samples = wave.samples
+        onStage?.invoke("разделение речи Sherpa")
         val localTurns = diarizer.process(samples)
+        onStage?.invoke("вычисление голосовых признаков")
         val vectorsByLocalSpeaker = embeddings.extractByLocalSpeaker(samples, localTurns)
+        onStage?.invoke("сопоставление голосов между частями")
         val resolved = HashMap<String, String>()
         for ((localSpeaker, vectors) in vectorsByLocalSpeaker) {
             val match = identities.assign(vectors)

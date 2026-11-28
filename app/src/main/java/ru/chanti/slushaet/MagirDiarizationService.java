@@ -1,5 +1,7 @@
 package ru.chanti.slushaet;
 
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -49,10 +51,43 @@ public final class MagirDiarizationService extends Service {
         if(s.getBoolean("running",false)&&!processRunning){
             String stale=s.getString("active_session","");
             SharedPreferences.Editor edit=s.edit().putBoolean("running",false).remove("active_session");
-            if(!stale.isEmpty())edit.putString("status_for_"+stale,
-                "Разделение голосов прервано системой. Исходная расшифровка сохранена; можно запустить ещё раз.");
+            if(!stale.isEmpty()){
+                String phase=s.getString("diagnostic_phase","не определён");
+                String reason=previousExit(c,s);
+                edit.putString("status_for_"+stale,
+                    "Разделение голосов прервано. Этап: "+phase+
+                    ". Причина Android: "+reason+
+                    ". Исходная расшифровка сохранена.");
+            }
             edit.apply();
         }
+    }
+    private static String previousExit(Context c,SharedPreferences s){
+        if(Build.VERSION.SDK_INT<30)return "недоступна";
+        int pid=s.getInt("diagnostic_pid",0);
+        long started=s.getLong("diagnostic_started",0);
+        if(pid<=0||started<=0)return "нет сведений";
+        try{
+            ActivityManager manager=(ActivityManager)c.getSystemService(Context.ACTIVITY_SERVICE);
+            if(manager==null)return "нет сведений";
+            for(ApplicationExitInfo exit:manager.getHistoricalProcessExitReasons(c.getPackageName(),pid,4)){
+                if(exit.getTimestamp()<started)continue;
+                switch(exit.getReason()){
+                    case ApplicationExitInfo.REASON_CRASH:return "ошибка Java (CRASH)";
+                    case ApplicationExitInfo.REASON_CRASH_NATIVE:return "сбой нативной библиотеки (CRASH_NATIVE)";
+                    case ApplicationExitInfo.REASON_LOW_MEMORY:return "нехватка памяти";
+                    case ApplicationExitInfo.REASON_ANR:return "приложение не отвечало";
+                    case ApplicationExitInfo.REASON_USER_REQUESTED:return "остановка по запросу пользователя";
+                    default:return "код "+exit.getReason()+"; статус "+exit.getStatus();
+                }
+            }
+        }catch(RuntimeException ignored){}
+        return "нет сведений";
+    }
+    private void stage(String message){
+        // Persist before entering native code, where a fatal signal bypasses Java catches.
+        p().edit().putString("diagnostic_phase",message).commit();
+        status(message);
     }
     private Notification notice(String message){
         PendingIntent open=PendingIntent.getActivity(this,0,
@@ -111,7 +146,10 @@ public final class MagirDiarizationService extends Service {
             foreground("Готовлю модели разделения голосов…");
             running=true;processRunning=true;runningSession=name;
             p().edit().putBoolean("running",true).putString("active_session",name)
-                .putString("status_for_"+name,"Готовлю модели разделения голосов…").apply();
+                .putString("status_for_"+name,"Готовлю модели разделения голосов…")
+                .putInt("diagnostic_pid",android.os.Process.myPid())
+                .putLong("diagnostic_started",System.currentTimeMillis())
+                .putString("diagnostic_phase","запуск службы").commit();
             acquireWakeLock();
             worker=new Thread(()->run(session),"Magir-Diarization-"+name);
             worker.start();
@@ -129,6 +167,7 @@ public final class MagirDiarizationService extends Service {
         File[] temporary=new File[parts.length];
         File[] finalFiles=new File[parts.length];
         try{
+            stage("Проверка и загрузка моделей голосов");
             final long[] lastProgress={0L};
             SpeakerModelInstaller.Models models=SpeakerModelInstaller.INSTANCE.install(
                 this,(model,downloaded,total)->{
@@ -140,6 +179,7 @@ public final class MagirDiarizationService extends Service {
                     }
                     return kotlin.Unit.INSTANCE;
                 });
+            stage("Инициализация нативных моделей Sherpa");
             try(MagirSpeakerDiarizationPipeline pipeline=
                     new MagirSpeakerDiarizationPipeline(models.getSegmentation(),
                         models.getEmbedding(),2,0.5f,0.5f,0.06f)){
@@ -149,10 +189,15 @@ public final class MagirDiarizationService extends Service {
                     File part=parts[i];
                     double length=MagirSpeechDecoder.duration(part);
                     if(length<=0)throw new IllegalStateException("Не читается "+part.getName());
+                    final int partNumber=i+1;
+                    stage("Часть "+partNumber+" из "+parts.length+": преобразование аудио");
                     File wav=MagirWavConverter.convert(part,getCacheDir());
                     try{
-                        status("Различаю голоса: часть "+(i+1)+" из "+parts.length+"…");
-                        List<DetectedSpeakerTurn> turns=pipeline.processPart(wav);
+                        List<DetectedSpeakerTurn> turns=pipeline.processPart(wav,phase->{
+                            stage("Часть "+partNumber+" из "+parts.length+": "+phase);
+                            return kotlin.Unit.INSTANCE;
+                        });
+                        stage("Часть "+partNumber+" из "+parts.length+": сохранение разметки");
                         long offsetMs=Math.round(offset*1000.0);
                         String name=MagirFileRules.speakerTurnsForAudio(part.getName());
                         temporary[i]=new File(dir,name+".tmp");
@@ -165,6 +210,7 @@ public final class MagirDiarizationService extends Service {
                 }
             }
             if(Thread.currentThread().isInterrupted())throw new InterruptedException();
+            stage("Сборка итогового текста с голосами");
             File transcriptTemp=new File(dir,"transcript_diarized_ru.build");
             MagirDiarizationFiles.buildTranscript(dir,parts,temporary,transcriptTemp);
             for(int i=0;i<temporary.length;i++){
@@ -177,6 +223,10 @@ public final class MagirDiarizationService extends Service {
                 readSpeakerCount(temporary.length,finalFiles)+" голосов.");
         }catch(InterruptedException stopped){
             status("Разделение остановлено. Исходная расшифровка Whisper сохранена; можно повторить.");
+        }catch(LinkageError error){
+            status("Ошибка подключения нативной библиотеки: "+error.getClass().getSimpleName()+": "+error.getMessage());
+        }catch(OutOfMemoryError error){
+            status("Не хватает памяти для разделения голосов. Исходный текст сохранён.");
         }catch(Exception error){
             status("Ошибка разделения голосов: "+error.getClass().getSimpleName()+": "+error.getMessage());
         }finally{
