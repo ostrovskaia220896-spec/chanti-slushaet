@@ -83,19 +83,28 @@ class SherpaSpeakerDiarizer(
         onProgress: ((processedChunks: Int, totalChunks: Int) -> Unit)? = null
     ): List<DetectedSpeakerTurn> {
         require(samples.isNotEmpty()) { "Audio is empty" }
+        // pyannote 3.0 at 16 kHz uses a 160000-sample window and 16000-sample hop.
+        // Avoid the native partial-last-window path that can terminate the process
+        // (sherpa-onnx issue #4288). Padding is only a temporary analysis input.
+        val input = SpeakerWindowPadding.pad(samples)
+        val realEndMs = samples.size.toLong() / 16L
         val segments = diarizer.processWithCallback(
-            samples,
+            input,
             { processed: Int, total: Int, ignored: Long ->
                 onProgress?.invoke(processed, total)
                 0
             }
         )
         return segments
-            .filter { it.start >= 0f && it.end > it.start && it.speaker >= 0 }
-            .map {
+            .filter { it.start.isFinite() && it.end.isFinite() && it.start >= 0f &&
+                it.end > it.start && it.speaker >= 0 }
+            .mapNotNull {
+                val startMs = (it.start * 1000.0f).toLong()
+                val endMs = minOf((it.end * 1000.0f).toLong(), realEndMs)
+                if (endMs <= startMs) return@mapNotNull null
                 DetectedSpeakerTurn(
-                    startMs = (it.start * 1000.0f).toLong(),
-                    endMs = (it.end * 1000.0f).toLong(),
+                    startMs = startMs,
+                    endMs = endMs,
                     speakerId = "speaker_" + it.speaker.toString().padStart(2, '0'),
                     confidence = it.confidence
                 )
